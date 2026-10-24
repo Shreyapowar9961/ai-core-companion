@@ -1,0 +1,91 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: care_companion_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ai_care_companion
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ai_care_companion"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: care_companion_backend
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=production
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ai_care_companion
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ai_care_companion
+      - SYNC_DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/ai_care_companion
+      - SUPABASE_URL=https://your-project.supabase.co
+      - SUPABASE_JWT_SECRET=super-secret-jwt-key-min-32-chars-long!
+      - TELEPHONY_PROVIDER=twilio
+      - TWILIO_ACCOUNT_SID=AC_demo_sid
+      - TWILIO_AUTH_TOKEN=demo_token
+      - TWILIO_PHONE_NUMBER=+18005550199
+      - SPEECH_PROVIDER=sarvam
+      - LLM_PROVIDER=openai
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: care_companion_worker
+    restart: unless-stopped
+    command: python worker/worker.py
+    environment:
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=ai_care_companion
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/ai_care_companion
+      - SYNC_DATABASE_URL=postgresql+psycopg2://postgres:postgres@db:5432/ai_care_companion
+      - SUPABASE_URL=https://your-project.supabase.co
+      - SUPABASE_JWT_SECRET=super-secret-jwt-key-min-32-chars-long!
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: care_companion_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000/api/v1
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
