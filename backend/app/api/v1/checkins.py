@@ -25,7 +25,7 @@ def submit_symptom_checkin(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    verify_patient_access(patient_id, current_user, patient.facility_id)
+    verify_patient_access(patient_id, current_user, patient.facility_id, db=db)
 
     comparison = dict(req.comparison_with_yesterday)
     prev_stmt = select(SymptomCheckin).where(
@@ -89,7 +89,7 @@ def list_patient_checkins(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    verify_patient_access(patient_id, current_user, patient.facility_id)
+    verify_patient_access(patient_id, current_user, patient.facility_id, db=db)
 
     stmt = select(SymptomCheckin).where(
         SymptomCheckin.patient_id == patient_id

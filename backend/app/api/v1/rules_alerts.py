@@ -19,7 +19,7 @@ router = APIRouter(prefix="/rules-alerts", tags=["Rules Engine & Escalation"])
 @router.get("/rules", response_model=List[EscalationRuleResponse])
 def list_rules(
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     stmt = select(EscalationRule).order_by(EscalationRule.severity, EscalationRule.code)
     return db.execute(stmt).scalars().all()
@@ -77,7 +77,7 @@ def list_alerts(
     status_filter: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     stmt = select(Alert)
     if patient_id:

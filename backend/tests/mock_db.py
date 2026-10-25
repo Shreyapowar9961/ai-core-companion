@@ -36,16 +36,24 @@ class MockPostgresSession:
         self.added_objects: List[Any] = []
         self._custom_return = None
 
+    def _get_ident(self, obj: Any) -> str:
+        if hasattr(obj, "token_sig") and obj.token_sig:
+            return str(obj.token_sig)
+        if hasattr(obj, "id") and obj.id:
+            return str(obj.id)
+        # Assign generated ID if neither present
+        try:
+            obj.id = str(uuid.uuid4())
+            return str(obj.id)
+        except Exception:
+            return str(uuid.uuid4())
+
     def add(self, obj: Any):
-        if not hasattr(obj, "id") or not obj.id:
-            try:
-                obj.id = str(uuid.uuid4())
-            except Exception:
-                pass
+        ident = self._get_ident(obj)
         obj_type = type(obj)
         if obj_type not in self.storage:
             self.storage[obj_type] = {}
-        self.storage[obj_type][obj.id] = obj
+        self.storage[obj_type][ident] = obj
         self.added_objects.append(obj)
 
     def add_all(self, objs: List[Any]):
@@ -54,12 +62,11 @@ class MockPostgresSession:
 
     def flush(self):
         for obj in self.added_objects:
-            if not hasattr(obj, "id") or not obj.id:
-                obj.id = str(uuid.uuid4())
+            ident = self._get_ident(obj)
             obj_type = type(obj)
             if obj_type not in self.storage:
                 self.storage[obj_type] = {}
-            self.storage[obj_type][obj.id] = obj
+            self.storage[obj_type][ident] = obj
 
     def commit(self):
         self.flush()
@@ -72,8 +79,9 @@ class MockPostgresSession:
 
     def delete(self, obj: Any):
         obj_type = type(obj)
-        if obj_type in self.storage and hasattr(obj, "id") and obj.id in self.storage[obj_type]:
-            del self.storage[obj_type][obj.id]
+        ident = self._get_ident(obj)
+        if obj_type in self.storage and ident in self.storage[obj_type]:
+            del self.storage[obj_type][ident]
 
     def execute(self, stmt: Any):
         if self._custom_return is not None:

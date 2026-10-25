@@ -15,7 +15,7 @@ import {
 
 export const RulesConfigPage: React.FC = () => {
   const { token, currentUser } = useAuth();
-  const isClinicianOrAdmin = currentUser.role === 'CLINICIAN' || currentUser.role === 'ADMIN';
+  const isClinicianOrAdmin = currentUser?.role === 'CLINICIAN' || currentUser?.role === 'ADMIN';
 
   const [rules, setRules] = useState<EscalationRule[]>([
     {

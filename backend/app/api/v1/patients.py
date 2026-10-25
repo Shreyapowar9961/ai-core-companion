@@ -175,17 +175,13 @@ def list_patients(
     facility_id: Optional[str] = None,
     status_filter: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     stmt = select(Patient)
     if current_user.role == UserRole.CLINICIAN:
         fac = facility_id or current_user.facility_id
         if fac:
             stmt = stmt.where(Patient.facility_id == fac)
-    elif current_user.role == UserRole.PATIENT:
-        stmt = stmt.where(Patient.id == current_user.patient_id)
-    elif current_user.role == UserRole.CAREGIVER:
-        stmt = stmt.where(Patient.id == current_user.patient_id)
 
     if status_filter:
         stmt = stmt.where(Patient.status == status_filter)
@@ -197,13 +193,13 @@ def list_patients(
 def get_patient_profile(
     patient_id: str,
     db: Session = Depends(get_db),
-    current_user: AuthUser = Depends(get_current_user)
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     patient = db.get(Patient, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    verify_patient_access(patient_id, current_user, patient.facility_id)
+    verify_patient_access(patient_id, current_user, patient.facility_id, db=db)
     return patient
 
 @router.post("/{patient_id}/pause")

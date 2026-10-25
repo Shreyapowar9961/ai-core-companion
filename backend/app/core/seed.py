@@ -2,19 +2,21 @@ from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.models.patient import Facility, Patient, Caregiver, Consent, CarePlan
+from app.models.user import UserProfile
 from app.models.clinical import MedicationSchedule, VitalsThreshold, VitalReading, SymptomCheckin, MedicationLog, LifestyleLog
 from app.models.knowledge import KnowledgeArticle
 from app.models.rules_alert import EscalationRule, Alert, AlertActionLog
 from app.models.appointment import Appointment
 from app.models.conversation import CallSession, CallTurn
 from app.models.progress import DailyProgressScore
+from app.core.security import hash_password
 
 def seed_initial_data(db: Session):
     """
     Populates database with initial facility, clinician rules, approved clinical
     knowledge base articles, and sample patients with full care plans and history.
     """
-    # 1. Facility
+    # 1. Facilities
     fac_stmt = select(Facility).where(Facility.id == "facility-apex-1")
     facility = db.execute(fac_stmt).scalars().first()
     if not facility:
@@ -25,7 +27,54 @@ def seed_initial_data(db: Session):
             contact_phone="+912026123456"
         )
         db.add(facility)
-        db.flush()
+
+    fac2_stmt = select(Facility).where(Facility.id == "facility-metropolis-2")
+    facility2 = db.execute(fac2_stmt).scalars().first()
+    if not facility2:
+        facility2 = Facility(
+            id="facility-metropolis-2",
+            name="Metropolis Heart & Vascular Institute",
+            location="Pune, Maharashtra",
+            contact_phone="+912025987654"
+        )
+        db.add(facility2)
+    db.flush()
+
+    # 1.1 Clinical Staff User Profiles (DB-05 Authentication)
+    staff_users = [
+        UserProfile(
+            id="user-neha-101",
+            email="dr.neha@apexcare.org",
+            full_name="Dr. Neha Kulkarni",
+            role="CLINICIAN",
+            facility_id="facility-apex-1",
+            password_hash=hash_password("Clinician123!"),
+            is_active=True
+        ),
+        UserProfile(
+            id="user-admin-1",
+            email="admin@apexcare.org",
+            full_name="Rajesh Sharma (Admin)",
+            role="ADMIN",
+            facility_id="facility-apex-1",
+            password_hash=hash_password("Admin123!"),
+            is_active=True
+        ),
+        UserProfile(
+            id="user-patil-202",
+            email="dr.patil@metropolis.org",
+            full_name="Dr. Ramesh Patil",
+            role="CLINICIAN",
+            facility_id="facility-metropolis-2",
+            password_hash=hash_password("Clinician123!"),
+            is_active=True
+        )
+    ]
+    for su in staff_users:
+        existing_su = db.execute(select(UserProfile).where(UserProfile.email == su.email)).scalars().first()
+        if not existing_su:
+            db.add(su)
+    db.flush()
 
     # 2. Approved Knowledge Base Articles (KQ-01, KQ-04)
     articles = [
@@ -359,5 +408,42 @@ def seed_initial_data(db: Session):
             sla_due_at=datetime.utcnow() + timedelta(minutes=45)
         )
         db.add(alert2)
+
+    # 6. Cross-Facility Patient (Metropolis Facility for Multi-Tenancy Testing)
+    p3_stmt = select(Patient).where(Patient.id == "patient-metro-201")
+    p3 = db.execute(p3_stmt).scalars().first()
+    if not p3:
+        p3 = Patient(
+            id="patient-metro-201",
+            facility_id="facility-metropolis-2",
+            first_name="Kishore",
+            last_name="Kumar",
+            dob=date(1968, 11, 5),
+            gender="Male",
+            phone="+919833445566",
+            email="kishore.kumar@example.com",
+            address="Kothrud, Pune",
+            emergency_contact_phone="+919833440011",
+            diagnosis="Post-Aortic Valve Replacement",
+            discharge_date=date.today() - timedelta(days=2),
+            programme_duration_days=30,
+            preferred_language="en",
+            status="ACTIVE",
+            treating_doctor_name="Dr. Ramesh Patil",
+            treating_doctor_specialty="Cardiologist"
+        )
+        db.add(p3)
+        db.flush()
+
+        c3 = Consent(
+            patient_id=p3.id,
+            voice_contact=True,
+            call_recording=True,
+            data_processing=True,
+            caregiver_disclosure=True,
+            emergency_escalation=True,
+            consented_at=datetime.utcnow() - timedelta(days=2)
+        )
+        db.add(c3)
 
     db.commit()

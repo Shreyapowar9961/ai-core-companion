@@ -1,4 +1,5 @@
 from app.models.patient import Facility, Patient, Caregiver, Consent, CarePlan
+from app.models.user import UserProfile, RevokedToken
 from app.models.clinical import (
     MedicationSchedule,
     MedicationLog,
@@ -20,6 +21,8 @@ __all__ = [
     "Caregiver",
     "Consent",
     "CarePlan",
+    "UserProfile",
+    "RevokedToken",
     "MedicationSchedule",
     "MedicationLog",
     "VitalsThreshold",

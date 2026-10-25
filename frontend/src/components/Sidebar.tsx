@@ -15,20 +15,22 @@ import {
 
 export const Sidebar: React.FC = () => {
   const { currentUser } = useAuth();
-  const isClinicianOrAdmin = currentUser.role === 'CLINICIAN' || currentUser.role === 'ADMIN';
+  if (!currentUser) return null;
+
+  const isAdmin = currentUser.role === 'ADMIN';
 
   const navItems = [
     {
       to: '/',
       label: 'Clinical Overview',
       icon: LayoutDashboard,
-      roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER', 'PATIENT'],
+      roles: ['CLINICIAN', 'ADMIN'],
     },
     {
       to: '/patients',
       label: 'Patients & 360 View',
       icon: Users,
-      roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER', 'PATIENT'],
+      roles: ['CLINICIAN', 'ADMIN'],
     },
     {
       to: '/onboard',
@@ -40,7 +42,7 @@ export const Sidebar: React.FC = () => {
       to: '/alerts',
       label: 'Alerts & Triage SLA',
       icon: AlertTriangle,
-      roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER'],
+      roles: ['CLINICIAN', 'ADMIN'],
     },
     {
       to: '/rules',
@@ -52,7 +54,7 @@ export const Sidebar: React.FC = () => {
       to: '/knowledge',
       label: 'Approved Knowledge',
       icon: BookOpen,
-      roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER', 'PATIENT'],
+      roles: ['CLINICIAN', 'ADMIN'],
     },
     {
       to: '/audit',

@@ -26,7 +26,7 @@ def record_vital_reading(
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
 
-    verify_patient_access(patient_id, current_user, patient.facility_id)
+    verify_patient_access(patient_id, current_user, patient.facility_id, db=db)
 
     vital_status, alert = RulesEngine.evaluate_vital_reading(
         db=db,
@@ -87,7 +87,7 @@ def list_patient_vitals(
     patient = db.get(Patient, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
-    verify_patient_access(patient_id, current_user, patient.facility_id)
+    verify_patient_access(patient_id, current_user, patient.facility_id, db=db)
 
     stmt = select(VitalReading).where(VitalReading.patient_id == patient_id)
     if vital_type:

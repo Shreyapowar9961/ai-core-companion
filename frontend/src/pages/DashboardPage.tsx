@@ -95,11 +95,11 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
 
   useEffect(() => {
     // Fetch live dashboard metrics from backend
-    apiClient.getDashboardMetrics(token, currentUser.facility_id)
+    apiClient.getDashboardMetrics(token, currentUser?.facility_id)
       .then((data) => setMetrics(data))
       .catch((err) => console.log('Using default dashboard metrics fallback:', err.message));
 
-    apiClient.getPriorityPatients(token, currentUser.facility_id)
+    apiClient.getPriorityPatients(token, currentUser?.facility_id)
       .then((data) => {
         if (data && data.length > 0) setPriorityPatients(data);
       })

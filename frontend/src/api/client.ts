@@ -8,13 +8,13 @@ const API_BASE = '/api/v1';
 
 async function fetchWithAuth<T>(
   url: string,
-  token: string,
+  token?: string | null,
   options: RequestInit = {}
 ): Promise<T> {
-  const headers = {
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
-    ...options.headers,
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
   };
 
   try {
@@ -36,52 +36,84 @@ async function fetchWithAuth<T>(
 }
 
 export const apiClient = {
+  // Authentication
+  login: async (email: string, password: string) => {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || 'Authentication failed. Please check credentials.');
+    }
+    return await res.json();
+  },
+
+  getMe: (token?: string | null) =>
+    fetchWithAuth<any>(`/auth/me`, token),
+
+  logout: async (token?: string | null) => {
+    if (!token) return;
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+    } catch (e) {
+      // Best-effort logout notification
+    }
+  },
+
   // Dashboard & Metrics
-  getDashboardMetrics: (token: string, facilityId?: string) =>
+  getDashboardMetrics: (token?: string | null, facilityId?: string) =>
     fetchWithAuth<DashboardMetrics>(`/dashboard/metrics${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
 
-  getPriorityPatients: (token: string, facilityId?: string) =>
+  getPriorityPatients: (token?: string | null, facilityId?: string) =>
     fetchWithAuth<PriorityPatientItem[]>(`/dashboard/priority-list${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
 
   // Patients
-  getPatients: (token: string, facilityId?: string) =>
+  getPatients: (token?: string | null, facilityId?: string) =>
     fetchWithAuth<Patient[]>(`/patients/${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
 
-  getPatient: (token: string, id: string) =>
+  getPatient: (token: string | null | undefined, id: string) =>
     fetchWithAuth<Patient>(`/patients/${id}`, token),
 
-  registerPatient: (token: string, data: any) =>
+  registerPatient: (token: string | null | undefined, data: any) =>
     fetchWithAuth<Patient>(`/patients/`, token, {
       method: 'POST',
       body: JSON.stringify(data),
     }),
 
-  pausePatient: (token: string, id: string, reason: string) =>
+  pausePatient: (token: string | null | undefined, id: string, reason: string) =>
     fetchWithAuth<Patient>(`/patients/${id}/pause`, token, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
 
-  resumePatient: (token: string, id: string, reason: string) =>
+  resumePatient: (token: string | null | undefined, id: string, reason: string) =>
     fetchWithAuth<Patient>(`/patients/${id}/resume`, token, {
       method: 'POST',
       body: JSON.stringify({ reason }),
     }),
 
-  withdrawConsent: (token: string, id: string, scope: string = 'FULL', reason?: string) =>
+  withdrawConsent: (token: string | null | undefined, id: string, scope: string = 'FULL', reason?: string) =>
     fetchWithAuth<any>(`/patients/${id}/withdraw-consent`, token, {
       method: 'POST',
       body: JSON.stringify({ withdrawal_scope: scope, reason }),
     }),
 
   // Clinical & Vitals
-  getPatientVitals: (token: string, patientId: string) =>
+  getPatientVitals: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<VitalReading[]>(`/vitals/history/${patientId}`, token),
 
-  getPatientSymptoms: (token: string, patientId: string) =>
+  getPatientSymptoms: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<SymptomCheckin[]>(`/checkins/history/${patientId}`, token),
 
-  recordManualVitals: (token: string, patientId: string, vitalType: string, value: number, secondaryValue?: number, unit: string = '%') =>
+  recordManualVitals: (token: string | null | undefined, patientId: string, vitalType: string, value: number, secondaryValue?: number, unit: string = '%') =>
     fetchWithAuth<VitalReading>(`/vitals/record`, token, {
       method: 'POST',
       body: JSON.stringify({
@@ -95,30 +127,30 @@ export const apiClient = {
     }),
 
   // Progress & Reporting
-  getPatientProgressScores: (token: string, patientId: string) =>
+  getPatientProgressScores: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<DailyProgressScore[]>(`/progress/history/${patientId}`, token),
 
-  getTodayProgressScore: (token: string, patientId: string) =>
+  getTodayProgressScore: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<DailyProgressScore>(`/progress/today/${patientId}`, token),
 
   // Alerts & Triage
-  getAlerts: (token: string, status?: string) =>
+  getAlerts: (token?: string | null, status?: string) =>
     fetchWithAuth<Alert[]>(`/rules-alerts/alerts${status ? `?status_filter=${status}` : ''}`, token),
 
-  acknowledgeAlert: (token: string, alertId: string, notes?: string) =>
+  acknowledgeAlert: (token: string | null | undefined, alertId: string, notes?: string) =>
     fetchWithAuth<Alert>(`/rules-alerts/alerts/${alertId}/acknowledge`, token, {
       method: 'POST',
       body: JSON.stringify({ notes }),
     }),
 
-  resolveAlert: (token: string, alertId: string, resolutionActionNotes: string) =>
+  resolveAlert: (token: string | null | undefined, alertId: string, resolutionActionNotes: string) =>
     fetchWithAuth<Alert>(`/rules-alerts/alerts/${alertId}/resolve`, token, {
       method: 'POST',
       body: JSON.stringify({ resolution_action_notes: resolutionActionNotes }),
     }),
 
   // Conversation & Call Simulator
-  startCallSession: (token: string, patientId: string, callType: string = 'MORNING_CHECKIN', language?: string) =>
+  startCallSession: (token: string | null | undefined, patientId: string, callType: string = 'MORNING_CHECKIN', language?: string) =>
     fetchWithAuth<any>(`/conversation/sessions/initiate`, token, {
       method: 'POST',
       body: JSON.stringify({
@@ -129,7 +161,7 @@ export const apiClient = {
       }),
     }),
 
-  processCallTurn: (token: string, sessionId: string, userSpeech: string) =>
+  processCallTurn: (token: string | null | undefined, sessionId: string, userSpeech: string) =>
     fetchWithAuth<any>(`/conversation/turns/process`, token, {
       method: 'POST',
       body: JSON.stringify({
@@ -138,32 +170,32 @@ export const apiClient = {
       }),
     }),
 
-  resumeInterruptedCall: (token: string, sessionId: string) =>
+  resumeInterruptedCall: (token: string | null | undefined, sessionId: string) =>
     fetchWithAuth<any>(`/conversation/sessions/${sessionId}/resume`, token, {
       method: 'POST',
     }),
 
-  getPatientCalls: (token: string, patientId: string) =>
+  getPatientCalls: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<CallSession[]>(`/conversation/patient/${patientId}/calls`, token),
 
   // Rules Engine
-  getRules: (token: string) =>
+  getRules: (token?: string | null) =>
     fetchWithAuth<EscalationRule[]>(`/rules-alerts/rules`, token),
 
-  saveRule: (token: string, rule: any) =>
+  saveRule: (token: string | null | undefined, rule: any) =>
     fetchWithAuth<EscalationRule>(`/rules-alerts/rules`, token, {
       method: 'POST',
       body: JSON.stringify(rule),
     }),
 
   // Knowledge Base
-  getKnowledgeArticles: (token: string) =>
+  getKnowledgeArticles: (token?: string | null) =>
     fetchWithAuth<KnowledgeArticle[]>(`/knowledge/articles`, token),
 
-  getDeclinedQueries: (token: string) =>
+  getDeclinedQueries: (token?: string | null) =>
     fetchWithAuth<DeclinedQueryLog[]>(`/knowledge/declined-queries`, token),
 
   // Audit & Governance
-  getPatientJourney: (token: string, patientId: string) =>
+  getPatientJourney: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<PatientJourney>(`/audit/journey/${patientId}`, token),
 };

@@ -77,7 +77,7 @@ export const OnboardingPage: React.FC = () => {
     setIsSubmitting(true);
 
     const payload = {
-      facility_id: currentUser.facility_id || 'facility-apex-1',
+      facility_id: currentUser?.facility_id || 'facility-apex-1',
       first_name: formData.first_name,
       last_name: formData.last_name,
       dob: formData.dob,

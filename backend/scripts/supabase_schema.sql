@@ -491,3 +491,105 @@ VALUES
     '{"sla_minutes": 60, "notify_caregiver": true, "medication_adherence_review": true}'::jsonb, TRUE
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- ==============================================================================
+-- 20. AUTHENTICATION & USER PROFILES (DB-05)
+-- ==============================================================================
+CREATE TABLE IF NOT EXISTS user_profiles (
+    id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    email VARCHAR(128) UNIQUE NOT NULL,
+    full_name VARCHAR(128) NOT NULL,
+    role VARCHAR(32) NOT NULL DEFAULT 'CLINICIAN', -- 'CLINICIAN', 'ADMIN'
+    facility_id VARCHAR(64) REFERENCES facilities(id) ON DELETE SET NULL,
+    password_hash VARCHAR(255),
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON user_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_facility ON user_profiles(facility_id);
+
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    token_sig VARCHAR(128) PRIMARY KEY,
+    user_id VARCHAR(64),
+    revoked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE
+);
+
+-- Seed Initial Authorized Clinical Staff Profiles
+INSERT INTO user_profiles (id, email, full_name, role, facility_id, password_hash, is_active)
+VALUES
+(
+    'user-neha-101', 'dr.neha@apexcare.org', 'Dr. Neha Kulkarni', 'CLINICIAN', 'facility-apex-1',
+    '4a2b9e6f1c8d3a5b:0f5e7c2d9a4b8e1f3c6d7a9b2e5f8c1d4a7b0e3f6c9d2a5b8e1f4c7d0a3b6e9f', TRUE
+),
+(
+    'user-admin-1', 'admin@apexcare.org', 'Rajesh Sharma (Admin)', 'ADMIN', 'facility-apex-1',
+    '8c1d4a7b0e3f6c9d:2a5b8e1f4c7d0a3b6e9f4a2b9e6f1c8d3a5b0f5e7c2d9a4b8e1f3c6d7a9b2e5f', TRUE
+)
+ON CONFLICT (email) DO NOTHING;
+
+-- ==============================================================================
+-- ROW LEVEL SECURITY (RLS) POLICIES (DB-05 & Facility Multi-Tenancy)
+-- ==============================================================================
+ALTER TABLE patients ENABLE ROW LEVEL SECURITY;
+ALTER TABLE care_plans ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medication_schedules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE vital_readings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE symptom_checkins ENABLE ROW LEVEL SECURITY;
+ALTER TABLE alerts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Helper function: Get authenticated user's facility ID from user_profiles
+CREATE OR REPLACE FUNCTION get_auth_facility_id()
+RETURNS VARCHAR(64) AS $$
+    SELECT facility_id FROM user_profiles WHERE id = auth.uid()::text OR email = auth.jwt()->>'email' LIMIT 1;
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Helper function: Is authenticated user an administrator?
+CREATE OR REPLACE FUNCTION is_auth_admin()
+RETURNS BOOLEAN AS $$
+    SELECT EXISTS (
+        SELECT 1 FROM user_profiles 
+        WHERE (id = auth.uid()::text OR email = auth.jwt()->>'email') 
+          AND role = 'ADMIN' 
+          AND is_active = TRUE
+    );
+$$ LANGUAGE sql SECURITY DEFINER STABLE;
+
+-- Patients RLS Policy
+DROP POLICY IF EXISTS "Clinicians see facility patients" ON patients;
+CREATE POLICY "Clinicians see facility patients" ON patients
+    FOR ALL
+    USING (
+        is_auth_admin() OR facility_id = get_auth_facility_id()
+    );
+
+-- Alerts RLS Policy
+DROP POLICY IF EXISTS "Clinicians see facility alerts" ON alerts;
+CREATE POLICY "Clinicians see facility alerts" ON alerts
+    FOR ALL
+    USING (
+        is_auth_admin() OR patient_id IN (
+            SELECT id FROM patients WHERE facility_id = get_auth_facility_id()
+        )
+    );
+
+-- Vitals RLS Policy
+DROP POLICY IF EXISTS "Clinicians see facility vitals" ON vital_readings;
+CREATE POLICY "Clinicians see facility vitals" ON vital_readings
+    FOR ALL
+    USING (
+        is_auth_admin() OR patient_id IN (
+            SELECT id FROM patients WHERE facility_id = get_auth_facility_id()
+        )
+    );
+
+-- User Profiles RLS Policy
+DROP POLICY IF EXISTS "Users read own profile" ON user_profiles;
+CREATE POLICY "Users read own profile" ON user_profiles
+    FOR SELECT
+    USING (
+        is_auth_admin() OR id = auth.uid()::text OR email = auth.jwt()->>'email'
+    );

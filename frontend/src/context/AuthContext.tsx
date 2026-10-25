@@ -1,74 +1,95 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthUser, UserRole } from '../types';
+import { AuthUser } from '../types';
+import { apiClient } from '../api/client';
 
 interface AuthContextType {
-  currentUser: AuthUser;
-  switchRole: (role: UserRole) => void;
-  token: string;
+  currentUser: AuthUser | null;
+  token: string | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
 }
-
-const DEMO_USERS: Record<UserRole, AuthUser> = {
-  CLINICIAN: {
-    id: 'doc-101',
-    name: 'Dr. Neha Kulkarni',
-    email: 'dr.neha@apexcare.org',
-    role: 'CLINICIAN',
-    facility_id: 'facility-apex-1'
-  },
-  ADMIN: {
-    id: 'admin-1',
-    name: 'Rajesh Sharma (Admin)',
-    email: 'admin@apexcare.org',
-    role: 'ADMIN',
-    facility_id: 'facility-apex-1'
-  },
-  CAREGIVER: {
-    id: 'cg-101',
-    name: 'Suresh Patil (Son & Caregiver)',
-    email: 'suresh.patil@example.com',
-    role: 'CAREGIVER',
-    patient_id: 'patient-demo-1'
-  },
-  PATIENT: {
-    id: 'patient-demo-1',
-    name: 'Ramesh Patil (Patient)',
-    email: 'ramesh.patil@example.com',
-    role: 'PATIENT',
-    patient_id: 'patient-demo-1'
-  }
-};
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState<AuthUser>(DEMO_USERS.CLINICIAN);
-  const [token, setToken] = useState<string>('');
+const TOKEN_STORAGE_KEY = 'apex_care_auth_token';
 
-  const generateDemoToken = (user: AuthUser): string => {
-    // Generates a client-side JWT payload matching backend HS256 / Supabase tokens
-    const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-    const payload = btoa(JSON.stringify({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-      name: user.name,
-      facility_id: user.facility_id,
-      patient_id: user.patient_id,
-      exp: Math.floor(Date.now() / 1000) + (86400 * 7)
-    }));
-    return `${header}.${payload}.mock_sig`;
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  // Validate active session on initial load
+  useEffect(() => {
+    const initializeAuth = async () => {
+      const storedToken = localStorage.getItem(TOKEN_STORAGE_KEY);
+      if (!storedToken) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        const userProfile = await apiClient.getMe(storedToken);
+        setCurrentUser({
+          id: userProfile.id,
+          email: userProfile.email,
+          name: userProfile.name,
+          role: userProfile.role,
+          facility_id: userProfile.facility_id,
+          patient_id: userProfile.patient_id,
+        });
+        setToken(storedToken);
+      } catch (err) {
+        console.warn('Session expired or invalid, clearing local credentials.');
+        localStorage.removeItem(TOKEN_STORAGE_KEY);
+        setCurrentUser(null);
+        setToken(null);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initializeAuth();
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    setIsLoading(true);
+    try {
+      const response = await apiClient.login(email, password);
+      const accessToken = response.access_token;
+      const user = response.user;
+
+      localStorage.setItem(TOKEN_STORAGE_KEY, accessToken);
+      setToken(accessToken);
+      setCurrentUser({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        facility_id: user.facility_id,
+        patient_id: user.patient_id,
+      });
+    } catch (err: any) {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      setToken(null);
+      setCurrentUser(null);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  useEffect(() => {
-    setToken(generateDemoToken(currentUser));
-  }, [currentUser]);
-
-  const switchRole = (role: UserRole) => {
-    setCurrentUser(DEMO_USERS[role]);
+  const logout = async () => {
+    if (token) {
+      await apiClient.logout(token);
+    }
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    setToken(null);
+    setCurrentUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ currentUser, switchRole, token }}>
+    <AuthContext.Provider value={{ currentUser, token, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -85,7 +85,7 @@ export const AlertsPage: React.FC = () => {
 
   const handleAcknowledge = async (alertId: string) => {
     try {
-      const res = await apiClient.acknowledgeAlert(token, alertId, `Acknowledged by ${currentUser.name}`);
+      const res = await apiClient.acknowledgeAlert(token, alertId, `Acknowledged by ${currentUser?.name || 'Staff'}`);
       setAlerts((prev) => prev.map((a) => (a.id === alertId ? res : a)));
     } catch (err: any) {
       // Local optimistic update
@@ -96,7 +96,7 @@ export const AlertsPage: React.FC = () => {
                 ...a,
                 status: 'ACKNOWLEDGED',
                 acknowledged_at: new Date().toISOString(),
-                acknowledged_by: `${currentUser.name} (${currentUser.role})`
+                acknowledged_by: `${currentUser?.name || 'Staff'} (${currentUser?.role || 'CLINICIAN'})`
               }
             : a
         )
@@ -119,7 +119,7 @@ export const AlertsPage: React.FC = () => {
                 ...a,
                 status: 'RESOLVED',
                 resolved_at: new Date().toISOString(),
-                resolved_by: `${currentUser.name} (${currentUser.role})`,
+                resolved_by: `${currentUser?.name || 'Staff'} (${currentUser?.role || 'CLINICIAN'})`,
                 resolution_action_notes: resolutionNotes
               }
             : a
