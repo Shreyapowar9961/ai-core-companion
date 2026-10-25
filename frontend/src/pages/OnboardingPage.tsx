@@ -481,7 +481,7 @@ export const OnboardingPage: React.FC = () => {
                 <div>
                   <span className="font-bold text-slate-800">Healthcare Data Processing Consent *</span>
                   <p className="text-slate-500 text-[11px]">
-                    Patient authorizes HIPAA/DPDP-compliant storage in facility PostgreSQL database.
+                    Patient authorizes secure, encrypted health data storage per hospital privacy standards.
                   </p>
                 </div>
               </label>
@@ -494,7 +494,7 @@ export const OnboardingPage: React.FC = () => {
                   className="mt-0.5 rounded-sm text-indigo-600 focus:ring-indigo-500 w-4 h-4"
                 />
                 <div>
-                  <span className="font-semibold text-slate-800">Caregiver Disclosure Consent (ON-04)</span>
+                  <span className="font-semibold text-slate-800">Caregiver Disclosure Consent</span>
                   <p className="text-slate-500 text-[11px]">
                     Patient authorizes sharing summary progress and alerts with designated caregivers.
                   </p>
@@ -531,7 +531,7 @@ export const OnboardingPage: React.FC = () => {
                 <p className="font-bold">
                   {isConsentComplete
                     ? 'Status upon submission: ACTIVE (Full Activation Permitted)'
-                    : 'Status upon submission: DRAFT (Activation Blocked per ON-06)'}
+                    : 'Status upon submission: DRAFT (Activation Blocked - Mandatory Consent Required)'}
                 </p>
                 <p className="text-[11px]">
                   {isConsentComplete
@@ -568,7 +568,7 @@ export const OnboardingPage: React.FC = () => {
             </div>
             <h2 className="text-xl font-bold text-slate-900">Patient Onboarded Successfully</h2>
             <p className="text-xs text-slate-600 max-w-md mx-auto leading-relaxed">
-              Patient profile has been registered in PostgreSQL. Care plan, vitals thresholds, and medication schedule are active.
+              Patient profile and recovery care plan registered successfully. Automated monitoring scheduled.
             </p>
             <div className="flex justify-center space-x-3 pt-4">
               <button

@@ -100,7 +100,7 @@ export const KnowledgeBasePage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center space-x-2">
           <BookOpen className="w-6 h-6 text-indigo-600" />
-          <span>Clinical Knowledge Library & Safety Guardrails (KQ-01 to KQ-05)</span>
+          <span>Clinical Knowledge Library & Safety Guardrails</span>
         </h1>
         <p className="text-xs text-slate-500 mt-1">
           Strict guardrail enforcement: AI answers questions ONLY from approved documentation. Diagnosis, triage, and dosage inquiries are strictly forbidden and routed to clinicians.
@@ -128,7 +128,7 @@ export const KnowledgeBasePage: React.FC = () => {
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            Declined & Routed Queries Log (KQ-05) ({declinedQueries.length})
+            Declined & Routed Queries Log ({declinedQueries.length})
           </button>
         </nav>
       </div>

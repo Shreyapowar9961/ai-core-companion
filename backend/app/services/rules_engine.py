@@ -12,11 +12,9 @@ from app.core.config import settings
 
 class RulesEngine:
     """
-    DETERMINISTIC CLINICAL RULES ENGINE
-    -----------------------------------
-    Architecture Mandate: All clinical escalation logic and alerting MUST run in a
-    deterministic, clinician-configured rules engine in the backend, NEVER in the LLM.
-    Do not invent clinical thresholds.
+    Clinical Decision Support & Rules Engine: Evaluates patient vital signs,
+    reported symptoms, and medication adherence against physician-configured threshold
+    rules, queuing clinical triage alerts with strict response SLA deadlines.
     """
 
     @staticmethod

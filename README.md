@@ -95,7 +95,7 @@ The system fulfills all 14 functional requirement groups (`ON-01` through `GV-05
 │   │   └── main.py          # FastAPI application entrypoint
 │   ├── worker/              # Background worker for scheduled calling, retries, and SLA monitoring
 │   ├── alembic/             # Alembic database migrations
-│   ├── tests/               # Automated unit, integration, and API test suite (Zero SQLite)
+│   ├── tests/               # Automated unit, integration, and API test suite
 │   ├── Dockerfile
 │   └── requirements.txt
 ├── frontend/
@@ -204,7 +204,7 @@ Open `http://localhost:5173` in your browser.
 
 ## 🧪 Running the Automated Test Suite
 
-All 18 automated tests execute against SQLAlchemy PostgreSQL models without SQLite dependencies:
+All 18 automated integration tests execute against the relational PostgreSQL models:
 ```bash
 python -m pytest backend/tests -v
 ```

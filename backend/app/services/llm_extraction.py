@@ -5,11 +5,8 @@ from app.core.config import settings
 
 class LLMExtractionService:
     """
-    STRUCTURED EXTRACTION SERVICE
-    -----------------------------
-    Architecture Mandate: Used ONLY for structured data extraction from speech transcripts.
-    NEVER makes clinical decisions, triage, or escalation evaluations.
-    Escalations are strictly handled by the deterministic RulesEngine.
+    Structured Clinical Extraction: Maps patient conversational responses into structured
+    vitals and symptom models using regex patterns and language models for entity recognition.
     """
 
     def __init__(self):

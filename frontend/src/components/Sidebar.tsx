@@ -43,12 +43,6 @@ export const Sidebar: React.FC = () => {
       roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER'],
     },
     {
-      to: '/call-console',
-      label: 'Call Console & Sim',
-      icon: PhoneCall,
-      roles: ['CLINICIAN', 'ADMIN', 'CAREGIVER', 'PATIENT'],
-    },
-    {
       to: '/rules',
       label: 'Clinical Rules Engine',
       icon: Sliders,
@@ -62,7 +56,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       to: '/audit',
-      label: 'Audit & Journey Reconstruct',
+      label: 'Clinical Audit & Journey',
       icon: History,
       roles: ['CLINICIAN', 'ADMIN'],
     },
@@ -105,10 +99,10 @@ export const Sidebar: React.FC = () => {
         <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
           <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold mb-1">
             <ShieldAlert className="w-4 h-4" />
-            <span>Deterministic Rules Active</span>
+            <span>Clinical Protocols Active</span>
           </div>
           <p className="text-[11px] text-slate-400 leading-relaxed">
-            All clinical escalation thresholds are backend-enforced in code. Zero LLM hallucinations.
+            Deterministic physician-configured thresholds active with immediate 15-minute emergency escalation.
           </p>
         </div>
       </div>
@@ -116,7 +110,7 @@ export const Sidebar: React.FC = () => {
       {/* Facility Footer */}
       <div className="pt-4 border-t border-slate-800 text-xs text-slate-400">
         <p className="font-semibold text-slate-300">Apex Heart & Recovery</p>
-        <p className="text-[10px] text-slate-400 font-mono">PostgreSQL 16 · Supabase Auth</p>
+        <p className="text-[10px] text-slate-400">Cardiology & Post-Op Recovery</p>
       </div>
     </aside>
   );

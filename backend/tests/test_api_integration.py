@@ -15,7 +15,7 @@ from backend.tests.mock_db import MockPostgresSession
 def test_health_endpoint():
     resp = health_check()
     assert resp["status"] == "healthy"
-    assert resp["database"] == "PostgreSQL (Supabase)"
+    assert resp["database"] == "connected"
 
 def test_rbac_admin_clinician_access():
     """

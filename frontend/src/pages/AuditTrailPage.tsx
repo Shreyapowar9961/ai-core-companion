@@ -71,8 +71,8 @@ export const AuditTrailPage: React.FC = () => {
           {
             timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
             type: 'ALERT_TRIGGERED',
-            subtype: 'RULE_VITALS_SPO2_CRITICAL',
-            actor: 'SYSTEM (RulesEngine)',
+            subtype: 'Critical Oxygen Desaturation Breach',
+            actor: 'Clinical Protocol Engine',
             details: { severity: 'CRITICAL', sla_minutes: 15 }
           }
         ]
@@ -89,7 +89,7 @@ export const AuditTrailPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center space-x-2">
           <History className="w-6 h-6 text-indigo-600" />
-          <span>Patient Journey Reconstruction & Governance Audit (GV-01 to GV-05)</span>
+          <span>Patient Journey Reconstruction & Clinical Audit</span>
         </h1>
         <p className="text-xs text-slate-500 mt-1">
           Complete, immutable chronological reconstruction of all calls, prompts, responses, vital readings, alert actions, and consent modifications.
@@ -114,7 +114,7 @@ export const AuditTrailPage: React.FC = () => {
           disabled={isLoading}
           className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-6 py-2 rounded-xl transition-colors shrink-0 shadow-xs"
         >
-          {isLoading ? 'Reconstructing...' : 'Reconstruct Full Journey (GV-05)'}
+          {isLoading ? 'Reconstructing...' : 'Reconstruct Full Journey'}
         </button>
       </form>
 
@@ -181,9 +181,13 @@ export const AuditTrailPage: React.FC = () => {
                   )}
 
                   {ev.details && (
-                    <pre className="text-[10px] text-slate-600 bg-white p-2 rounded-lg border border-slate-200 font-mono overflow-x-auto mt-1">
-                      {JSON.stringify(ev.details, null, 2)}
-                    </pre>
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {Object.entries(ev.details).map(([k, v]) => (
+                        <span key={k} className="bg-white border border-slate-200 px-2 py-0.5 rounded text-[10px] text-slate-700">
+                          <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}:</span> <strong className="text-slate-800">{String(v)}</strong>
+                        </span>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

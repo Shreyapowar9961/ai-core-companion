@@ -327,7 +327,7 @@ export const PatientDetailPage: React.FC = () => {
               className="bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-colors"
             >
               <PauseCircle className="w-4 h-4" />
-              <span>Pause Programme (PL-02)</span>
+              <span>Pause Programme</span>
             </button>
           ) : patient.status === 'PAUSED' ? (
             <button
@@ -335,7 +335,7 @@ export const PatientDetailPage: React.FC = () => {
               className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-colors"
             >
               <PlayCircle className="w-4 h-4" />
-              <span>Resume Programme (PL-02)</span>
+              <span>Resume Programme</span>
             </button>
           ) : null}
 
@@ -344,7 +344,7 @@ export const PatientDetailPage: React.FC = () => {
               onClick={handleWithdrawConsent}
               className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
             >
-              Withdraw Consent (PL-03)
+              Withdraw Consent
             </button>
           )}
 
@@ -357,13 +357,13 @@ export const PatientDetailPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Daily Progress Score Gauge (PR-01 & PR-02) */}
+      {/* Daily Progress Score Gauge */}
       {todayScore && (
         <div className="bg-gradient-to-r from-slate-900 to-indigo-950 text-white p-6 rounded-2xl shadow-sm border border-slate-800 flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
               <span className="text-xs uppercase tracking-wider font-semibold text-indigo-400">
-                Care Progress Score (Weighted PR-01)
+                Care Progress Score
               </span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                 todayScore.trend === 'DECLINING' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' : 'bg-emerald-500/20 text-emerald-300'
@@ -442,7 +442,7 @@ export const PatientDetailPage: React.FC = () => {
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
               <User className="w-4 h-4 text-indigo-600" />
-              <span>Demographics & Contact (ON-01)</span>
+              <span>Demographics & Contact</span>
             </h3>
             <div className="space-y-2 text-xs">
               <div className="flex justify-between py-1 border-b border-slate-100">
@@ -471,9 +471,9 @@ export const PatientDetailPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Caregivers (ON-04) */}
+            {/* Caregivers */}
             <div className="pt-2">
-              <h4 className="font-semibold text-xs text-slate-800 mb-2">Designated Caregivers (ON-04)</h4>
+              <h4 className="font-semibold text-xs text-slate-800 mb-2">Designated Caregivers</h4>
               {patient.caregivers && patient.caregivers.map((cg) => (
                 <div key={cg.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
                   <div className="flex justify-between">
@@ -491,7 +491,7 @@ export const PatientDetailPage: React.FC = () => {
             <div className="flex items-center justify-between">
               <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
                 <Heart className="w-4 h-4 text-rose-500" />
-                <span>Latest Vitals & Bounds (VT-01)</span>
+                <span>Latest Vitals & Bounds</span>
               </h3>
               <button
                 onClick={() => setActiveTab('vitals')}
@@ -530,7 +530,7 @@ export const PatientDetailPage: React.FC = () => {
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
             <h3 className="font-bold text-sm text-slate-900 flex items-center space-x-2">
               <Pill className="w-4 h-4 text-emerald-600" />
-              <span>Active Care Plan Medications (MD-01)</span>
+              <span>Active Care Plan Medications</span>
             </h3>
 
             <div className="space-y-2 text-xs">
@@ -549,7 +549,7 @@ export const PatientDetailPage: React.FC = () => {
 
             {/* Guardrail Note */}
             <div className="p-3 bg-slate-100 rounded-xl text-[11px] text-slate-600">
-              <p className="font-semibold text-slate-800">Prescription Safety Guardrail (MD-07):</p>
+              <p className="font-semibold text-slate-800">Prescription Safety Guardrail:</p>
               <p className="mt-0.5">The conversational AI cannot alter doses or determine medications. Any patient inquiries are routed to treating physician.</p>
             </div>
           </div>
@@ -561,7 +561,7 @@ export const PatientDetailPage: React.FC = () => {
       {activeTab === 'vitals' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-200 flex justify-between items-center">
-            <h3 className="font-bold text-sm text-slate-900">Recorded Vitals History (VT-01 to VT-05)</h3>
+            <h3 className="font-bold text-sm text-slate-900">Recorded Vitals History</h3>
             <button
               onClick={() => setShowVitalModal(true)}
               className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
@@ -596,7 +596,7 @@ export const PatientDetailPage: React.FC = () => {
                     {v.voice_confirmed ? (
                       <span className="text-emerald-600 font-semibold flex items-center">
                         <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                        Confirmed (VT-01)
+                        Confirmed via Voice
                       </span>
                     ) : (
                       <span className="text-slate-400">Manual Entry</span>
@@ -613,7 +613,7 @@ export const PatientDetailPage: React.FC = () => {
       {activeTab === 'symptoms' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-200">
-            <h3 className="font-bold text-sm text-slate-900">Standardized Symptom Check-ins (CI-01 to CI-08)</h3>
+            <h3 className="font-bold text-sm text-slate-900">Standardized Symptom Check-ins</h3>
             <p className="text-xs text-slate-500">Morning & evening symptom trajectory tracking, pain score 0-10, breathlessness deterioration.</p>
           </div>
           <table className="w-full text-left text-xs">
@@ -659,7 +659,7 @@ export const PatientDetailPage: React.FC = () => {
       {activeTab === 'meds' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs p-6 space-y-6">
           <div>
-            <h3 className="font-bold text-base text-slate-900">Prescription Schedule & Targets (ON-02, MD-01)</h3>
+            <h3 className="font-bold text-base text-slate-900">Prescription Schedule & Targets</h3>
             <p className="text-xs text-slate-500 mt-1">Configured discharge care plan enforced by deterministic verification.</p>
           </div>
 
@@ -682,7 +682,7 @@ export const PatientDetailPage: React.FC = () => {
           </div>
 
           <div className="p-4 bg-slate-100 rounded-xl space-y-2">
-            <h4 className="font-bold text-xs text-slate-800">Lifestyle Targets (LS-01 to LS-06)</h4>
+            <h4 className="font-bold text-xs text-slate-800">Lifestyle & Recovery Targets</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
               <div>
                 <p className="text-slate-500 text-[11px]">Hydration Goal</p>
@@ -709,7 +709,7 @@ export const PatientDetailPage: React.FC = () => {
       {activeTab === 'calls' && (
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-200">
-            <h3 className="font-bold text-sm text-slate-900">Telephone Call Sessions (CV-01, CM-01)</h3>
+            <h3 className="font-bold text-sm text-slate-900">Telephone Call Sessions</h3>
             <p className="text-xs text-slate-500">Structured telephony records, attempt dispositions, and interrupted call recovery.</p>
           </div>
           <table className="w-full text-left text-xs">
@@ -719,7 +719,7 @@ export const PatientDetailPage: React.FC = () => {
                 <th className="px-4 py-3">Direction & Type</th>
                 <th className="px-4 py-3">Language</th>
                 <th className="px-4 py-3">Duration</th>
-                <th className="px-4 py-3">Disposition (CM-01)</th>
+                <th className="px-4 py-3">Disposition</th>
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>

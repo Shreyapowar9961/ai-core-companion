@@ -46,7 +46,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
       priority_tier: 'CRITICAL',
       priority_score: 95,
       inclusion_reasons: [
-        'Critical SpO2 breach: 86% recorded today (Rule VT-03)',
+        'Critical SpO2 breach: 86% recorded today (Below critical threshold)',
         'Severe acute pain score 8/10 reported'
       ],
       open_alerts_count: 2,
@@ -63,8 +63,8 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
       priority_tier: 'HIGH',
       priority_score: 82,
       inclusion_reasons: [
-        'Sustained worsening breathlessness across 2 consecutive check-ins (Rule CI-05)',
-        'Repeated medication miss: Amlodipine 5mg (2 doses missed) (Rule MD-05)'
+        'Sustained worsening breathlessness across 2 consecutive check-ins',
+        'Repeated medication miss: Amlodipine 5mg (2 doses missed)'
       ],
       open_alerts_count: 1,
       medication_adherence_7d: 78,

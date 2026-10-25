@@ -95,10 +95,10 @@ export const RulesConfigPage: React.FC = () => {
       <div>
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center space-x-2">
           <Sliders className="w-6 h-6 text-indigo-600" />
-          <span>Deterministic Clinical Rules Engine (ES-01, DB-05)</span>
+          <span>Clinical Decision Support & Rules Engine</span>
         </h1>
         <p className="text-xs text-slate-500 mt-1">
-          Backend-enforced escalation logic and biological plausibility bounds. Protected by RBAC—only clinicians and system administrators can configure parameters.
+          Clinician-configured escalation logic and biological plausibility bounds. Protocol modifications require attending physician authorization.
         </p>
       </div>
 
@@ -109,7 +109,7 @@ export const RulesConfigPage: React.FC = () => {
           <div>
             <p className="font-bold">Read-Only Mode: Clinician Role Required</p>
             <p className="text-[11px] text-amber-800">
-              Per requirements ES-01 and DB-05, rule modifications require Clinician or Admin privileges. Switch role in top header to edit.
+              Protocol modifications require Clinician or Admin privileges. Switch role in top header to edit.
             </p>
           </div>
         </div>
@@ -137,12 +137,16 @@ export const RulesConfigPage: React.FC = () => {
               </span>
             </div>
 
-            {/* Condition Parameters JSON display */}
+            {/* Condition Parameters Display */}
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
               <p className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">Evaluation Conditions:</p>
-              <pre className="text-[11px] text-slate-600 font-mono overflow-x-auto">
-                {JSON.stringify(rule.condition_json, null, 2)}
-              </pre>
+              <div className="flex flex-wrap gap-1.5 pt-1">
+                {Object.entries(rule.condition_json).map(([k, v]) => (
+                  <span key={k} className="bg-white border border-slate-300 px-2 py-0.5 rounded-md text-[11px] text-slate-700 font-medium">
+                    <span className="text-slate-500 capitalize">{k.replace(/_/g, ' ')}:</span> <strong className="text-slate-800">{typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}</strong>
+                  </span>
+                ))}
+              </div>
             </div>
 
             {/* Enforced Actions */}
@@ -160,15 +164,15 @@ export const RulesConfigPage: React.FC = () => {
                 )}
                 {rule.action_json.emergency_script && (
                   <span className="font-semibold bg-white px-2 py-0.5 rounded-md border border-indigo-200 text-rose-700">
-                    Emergency Script (ES-03)
+                    Emergency Protocol Dispatched
                   </span>
                 )}
               </div>
             </div>
 
-            {/* Audit guarantee (GV-04) */}
+            {/* Audit Guarantee */}
             <p className="text-[10px] text-slate-400 pt-1">
-              Rule changes are immutably logged with before/after diffs in <span className="font-mono">config_audit_logs</span>.
+              All protocol modifications are immutably logged in the clinical governance audit trail.
             </p>
           </div>
         ))}

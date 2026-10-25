@@ -362,10 +362,10 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
                 <button
                   onClick={handleInterruptCall}
                   className="bg-rose-600 hover:bg-rose-700 text-white font-semibold px-3 py-1.5 rounded-lg flex items-center space-x-1.5 transition-colors"
-                  title="Simulate mid-call connection drop (CM-05)"
+                  title="Simulate mid-call connection drop"
                 >
                   <PhoneOff className="w-3.5 h-3.5" />
-                  <span>Drop Call (CM-05)</span>
+                  <span>Disconnect Call</span>
                 </button>
               </div>
             )}
@@ -425,7 +425,7 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs space-y-1">
               <div className="flex items-center space-x-2 text-rose-700 font-bold">
                 <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>Deterministic Rules Engine Triggered:</span>
+                <span>Clinical Triage Alert Triggered:</span>
               </div>
               {alertsTriggered.map((a, i) => (
                 <p key={i} className="text-rose-600 pl-6 text-[11px]">
@@ -439,15 +439,15 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
           {isCompleted && turnsHistory.some(t => t.agent?.includes('[CALL DISCONNECTED')) && (
             <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs flex items-center justify-between">
               <div className="text-amber-800">
-                <p className="font-bold">Call was interrupted at step: {stepKey}</p>
-                <p className="text-[11px] text-amber-700">Per requirement CM-05, all captured vitals/symptoms were persisted.</p>
+                <p className="font-bold">Call was disconnected during: {stepKey.replace('_', ' ')}</p>
+                <p className="text-[11px] text-amber-700">All captured vitals and symptom responses were persisted and saved.</p>
               </div>
               <button
                 onClick={handleResumeCall}
                 className="bg-amber-600 hover:bg-amber-700 text-white font-semibold px-3 py-1.5 rounded-lg text-xs flex items-center space-x-1"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
-                <span>Resume from {stepKey}</span>
+                <span>Resume Conversation</span>
               </button>
             </div>
           )}

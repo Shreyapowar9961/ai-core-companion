@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    description="Multilingual Voice-Based Post-Discharge Recovery Care Platform - PostgreSQL & Supabase Architecture",
+    description="Multilingual Voice-Based Post-Discharge Recovery Care Platform",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
@@ -84,7 +84,7 @@ def health_check():
         "status": "healthy",
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "database": "PostgreSQL (Supabase)",
+        "database": "connected",
         "environment": settings.ENVIRONMENT
     }
 

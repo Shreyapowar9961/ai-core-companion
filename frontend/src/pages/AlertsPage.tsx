@@ -194,7 +194,6 @@ export const AlertsPage: React.FC = () => {
                     <StatusBadge status={alert.severity} size="sm" />
                     <StatusBadge status={alert.status} size="sm" />
                     <h3 className="font-bold text-sm text-slate-900">{alert.title}</h3>
-                    <span className="text-xs text-slate-400 font-mono">({alert.rule_code})</span>
                   </div>
 
                   <p className="text-xs text-slate-700 leading-relaxed">{alert.description}</p>
@@ -224,10 +223,10 @@ export const AlertsPage: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Resolution Notes (DB-04, ES-07 Requirement) */}
+                  {/* Resolution Notes */}
                   {alert.resolution_action_notes && (
                     <div className="mt-2 p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900">
-                      <strong>Clinical Resolution Action (ES-07):</strong> {alert.resolution_action_notes}
+                      <strong>Clinical Resolution Action:</strong> {alert.resolution_action_notes}
                     </div>
                   )}
                 </div>
