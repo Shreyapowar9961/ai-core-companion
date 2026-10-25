@@ -17,13 +17,11 @@ class LLMExtractionService:
         self.api_key = settings.OPENAI_API_KEY
         self.model = settings.OPENAI_MODEL
 
-    async def extract_checkin_symptoms(self, transcript: str) -> Dict[str, Any]:
+    def extract_checkin_symptoms(self, transcript: str) -> Dict[str, Any]:
         """
         Extracts structured symptom severity (pain, weakness, dizziness, breathlessness, etc.)
         from conversational speech transcript.
         """
-        # If OpenAI is configured and available, we could call it.
-        # Otherwise, our deterministic clinical parser extracts with 100% reliability!
         result: Dict[str, Any] = {
             "pain_level": 0,
             "breathlessness": "none",
@@ -99,7 +97,7 @@ class LLMExtractionService:
 
         return result
 
-    async def extract_vitals(self, vital_type: str, transcript: str) -> Dict[str, Any]:
+    def extract_vitals(self, vital_type: str, transcript: str) -> Dict[str, Any]:
         """
         Extracts numbers and units for vitals from speech.
         """

@@ -31,8 +31,9 @@ async def lifespan(app: FastAPI):
     # Initialize PostgreSQL Schema
     logger.info("Connecting to PostgreSQL / Supabase...")
     try:
-        Base.metadata.create_all(bind=engine)
-        logger.info("PostgreSQL relational schema verified.")
+        with engine.connect() as conn:
+            Base.metadata.create_all(bind=conn)
+            logger.info("PostgreSQL relational schema verified.")
         with SessionLocal() as session:
             seed_initial_data(session)
             logger.info("Clinical knowledge base and seed data verified.")

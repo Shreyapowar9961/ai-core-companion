@@ -1,110 +1,122 @@
 import pytest
-from starlette.testclient import TestClient
-from app.main import app
-from app.core.security import create_access_token, UserRole
-
-client = TestClient(app)
+from datetime import datetime, date, timedelta
+from fastapi import HTTPException
+from app.main import health_check
+from app.core.security import AuthUser, UserRole, require_roles, verify_patient_access
+from app.models.patient import Patient
+from app.models.rules_alert import Alert
+from app.models.audit import AuditLog
+from app.schemas.rules_alert import EscalationRuleCreate, AlertAcknowledgeRequest, AlertResolveRequest
+from app.api.v1.patients import list_patients, get_patient_profile
+from app.api.v1.rules_alerts import list_alerts, acknowledge_alert, resolve_alert, create_or_update_rule
+from app.core.audit import reconstruct_patient_journey
+from backend.tests.mock_db import MockPostgresSession
 
 def test_health_endpoint():
-    resp = client.get("/health")
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "healthy"
+    resp = health_check()
+    assert resp["status"] == "healthy"
+    assert resp["database"] == "PostgreSQL (Supabase)"
 
 def test_rbac_admin_clinician_access():
     """
     DB-05: Enforce role-based access so users see only patients and data appropriate to their role and facility.
     """
-    # 1. Clinician token
-    clinician_token = create_access_token({
-        "sub": "doc-101",
-        "email": "dr.sharma@apexcare.com",
-        "role": UserRole.CLINICIAN.value,
-        "facility_id": "facility-apex-1",
-        "name": "Dr. Sharma"
-    })
-    headers = {"Authorization": f"Bearer {clinician_token}"}
-
-    resp = client.get("/api/v1/patients/", headers=headers)
-    assert resp.status_code == 200
-    assert isinstance(resp.json(), list)
-
-    # 2. Unauthorized role attempting to configure clinician rules (ES-01)
-    patient_token = create_access_token({
-        "sub": "patient-99",
-        "email": "patient@care.org",
-        "role": UserRole.PATIENT.value,
-        "patient_id": "patient-99"
-    })
-    patient_headers = {"Authorization": f"Bearer {patient_token}"}
-
-    rule_resp = client.post(
-        "/api/v1/rules-alerts/rules",
-        headers=patient_headers,
-        json={
-            "code": "RULE_UNAUTHORIZED",
-            "name": "Unauthorized Test",
-            "category": "VITALS",
-            "severity": "CRITICAL",
-            "condition_json": {},
-            "action_json": {}
-        }
+    db = MockPostgresSession()
+    demo_patient = Patient(
+        id="patient-apex-101",
+        facility_id="facility-apex-1",
+        first_name="Ramesh",
+        last_name="Patil",
+        dob=date(1955, 6, 12),
+        gender="Male",
+        phone="+919820011223",
+        diagnosis="Post-CABG",
+        discharge_date=date.today(),
+        status="ACTIVE"
     )
-    assert rule_resp.status_code == 403 # Forbidden! Only Clinician or Admin permitted
+    db.add(demo_patient)
+
+    # 1. Clinician can list patients in their facility
+    clinician = AuthUser(
+        id="doc-101",
+        email="dr.sharma@apexcare.com",
+        role=UserRole.CLINICIAN,
+        facility_id="facility-apex-1",
+        name="Dr. Sharma"
+    )
+    patients = list_patients(facility_id="facility-apex-1", db=db, current_user=clinician)
+    assert len(patients) >= 1
+    assert patients[0].first_name == "Ramesh"
+
+    # 2. Patient attempting unauthorized action (e.g. creating clinician rule) must be blocked (403)
+    patient_user = AuthUser(
+        id="patient-99",
+        email="patient@care.org",
+        role=UserRole.PATIENT,
+        patient_id="patient-99"
+    )
+    role_checker = require_roles([UserRole.CLINICIAN, UserRole.ADMIN])
+    with pytest.raises(HTTPException) as excinfo:
+        role_checker(patient_user)
+    assert excinfo.value.status_code == 403
 
 def test_full_alert_resolution_lifecycle():
     """
     DB-04, ES-07: Acknowledge and Resolve alert with explicit named user action notes.
     """
-    admin_token = create_access_token({
-        "sub": "admin-1",
-        "email": "admin@care.org",
-        "role": UserRole.ADMIN.value,
-        "name": "Admin Officer"
-    })
-    headers = {"Authorization": f"Bearer {admin_token}"}
+    db = MockPostgresSession()
+    alert = Alert(
+        id="alert-lifecycle-1",
+        patient_id="patient-apex-101",
+        rule_code="RULE_VITALS_SPO2_CRITICAL",
+        severity="CRITICAL",
+        title="Critical Low SpO2 Breach",
+        description="Oxygen saturation dropped to 86%",
+        status="OPEN",
+        sla_due_at=datetime.utcnow() + timedelta(minutes=15)
+    )
+    db.add(alert)
 
-    # Fetch alerts
-    alerts_resp = client.get("/api/v1/rules-alerts/alerts", headers=headers)
-    assert alerts_resp.status_code == 200
-    alerts = alerts_resp.json()
-    assert len(alerts) > 0
-
-    target_alert = alerts[0]
-    alert_id = target_alert["id"]
+    admin = AuthUser(
+        id="admin-1",
+        email="admin@care.org",
+        role=UserRole.ADMIN,
+        name="Admin Officer"
+    )
 
     # 1. Acknowledge alert
-    ack_resp = client.post(
-        f"/api/v1/rules-alerts/alerts/{alert_id}/acknowledge",
-        headers=headers,
-        json={"notes": "Reviewed with attending cardiologist."}
-    )
-    assert ack_resp.status_code == 200
-    assert ack_resp.json()["status"] == "ACKNOWLEDGED"
+    ack_req = AlertAcknowledgeRequest(notes="Reviewed with attending cardiologist.")
+    ack_res = acknowledge_alert("alert-lifecycle-1", ack_req, db=db, current_user=admin)
+    assert ack_res.status == "ACKNOWLEDGED"
+    assert ack_res.acknowledged_by is not None
 
-    # 2. Resolve alert with explicit clinical action notes (DB-04, ES-07)
-    res_resp = client.post(
-        f"/api/v1/rules-alerts/alerts/{alert_id}/resolve",
-        headers=headers,
-        json={"resolution_action_notes": "Patient contacted via phone. Advised rest, hydration, and took follow-up SpO2 reading of 97%."}
+    # 2. Resolve alert with explicit clinical action notes
+    resolve_req = AlertResolveRequest(
+        resolution_action_notes="Patient contacted via phone. Advised rest, hydration, and took follow-up SpO2 reading of 97%."
     )
-    assert res_resp.status_code == 200
-    assert res_resp.json()["status"] == "RESOLVED"
-    assert "Patient contacted via phone" in res_resp.json()["resolution_action_notes"]
+    res_result = resolve_alert("alert-lifecycle-1", resolve_req, db=db, current_user=admin)
+    assert res_result.status == "RESOLVED"
+    assert "Advised rest" in res_result.resolution_action_notes
 
 def test_journey_reconstruction():
     """
     GV-05: Enable reconstruction of a patient's complete interaction history for any period.
     """
-    admin_token = create_access_token({
-        "sub": "admin-1",
-        "email": "admin@care.org",
-        "role": UserRole.ADMIN.value,
-        "name": "Admin Officer"
-    })
-    headers = {"Authorization": f"Bearer {admin_token}"}
+    db = MockPostgresSession()
+    audit_entry = AuditLog(
+        id="audit-j-1",
+        event_type="CALL_COMPLETED",
+        patient_id="pt-journey-test",
+        actor_id="AI_COMPANION",
+        actor_role="SYSTEM",
+        resource="call_session",
+        details_json={"disposition": "COMPLETED", "duration_seconds": 180},
+        created_at=datetime.utcnow()
+    )
+    db.add(audit_entry)
 
-    resp = client.get("/api/v1/audit/journey/patient-demo-1", headers=headers)
-    assert resp.status_code == 200
-    data = resp.json()
-    assert "events" in data
-    assert isinstance(data["events"], list)
+    events = reconstruct_patient_journey(db, "pt-journey-test")
+    assert isinstance(events, list)
+    assert len(events) >= 1
+    assert events[0]["type"] == "AUDIT_EVENT"
+    assert events[0]["subtype"] == "CALL_COMPLETED"

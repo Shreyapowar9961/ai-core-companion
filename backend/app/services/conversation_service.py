@@ -125,7 +125,7 @@ class ConversationService:
         # 2. Transfer to Human Clinician Request (CV-07)
         speech_lower = user_speech.lower()
         if any(term in speech_lower for term in [
-            "speak to doctor", "talk to nurse", "human", "care team",
+            "speak to doctor", "talk to doctor", "talk to nurse", "connect me", "connect to", "human", "care team",
             "doctor se baat", "nurse se baat", "doctorashi bola"
         ]):
             session.transferred_to_human = True
@@ -218,7 +218,7 @@ class ConversationService:
                 }
 
         elif current_step == "WELLBEING":
-            extracted = asyncio.run(llm_extraction_service.extract_checkin_symptoms(user_speech))
+            extracted = llm_extraction_service.extract_checkin_symptoms(user_speech)
             resume_ctx["wellbeing_transcript"] = user_speech
             resume_ctx["extracted_symptoms"] = extracted
             turn_extracted_data["symptoms_preliminary"] = extracted
@@ -227,7 +227,7 @@ class ConversationService:
             agent_response_text = LanguageService.get_prompt("SYMPTOMS_PAIN", lang=lang)
 
         elif current_step == "SYMPTOMS_PAIN":
-            extracted = asyncio.run(llm_extraction_service.extract_checkin_symptoms(user_speech))
+            extracted = llm_extraction_service.extract_checkin_symptoms(user_speech)
             pain_level = extracted.get("pain_level", 0)
             resume_ctx["pain_level"] = pain_level
             turn_extracted_data["pain_level"] = pain_level
@@ -253,7 +253,7 @@ class ConversationService:
                 agent_response_text = LanguageService.get_prompt("SYMPTOMS_BREATHLESSNESS", lang=lang)
 
         elif current_step == "SYMPTOMS_BREATHLESSNESS":
-            extracted = asyncio.run(llm_extraction_service.extract_checkin_symptoms(user_speech))
+            extracted = llm_extraction_service.extract_checkin_symptoms(user_speech)
             breathlessness = extracted.get("breathlessness", "none")
             comparison = extracted.get("comparison", {})
             resume_ctx["breathlessness"] = breathlessness

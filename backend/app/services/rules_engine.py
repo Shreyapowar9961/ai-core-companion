@@ -190,7 +190,7 @@ class RulesEngine:
 
         # 1. Red-Flag Presentation Checks (ES-03)
         red_flag_reasons = []
-        if current_checkin.pain_level >= 8:
+        if current_checkin.pain_level is not None and current_checkin.pain_level >= 8:
             red_flag_reasons.append(f"Severe acute pain reported (Score: {current_checkin.pain_level}/10)")
         if current_checkin.breathlessness in ["severe", "worsened_severe"]:
             red_flag_reasons.append("Severe breathlessness reported")
@@ -237,10 +237,10 @@ class RulesEngine:
 
         if previous_checkins:
             worsened_breathlessness_days = 0
-            if current_checkin.comparison_with_yesterday.get("breathlessness") == "worsened":
+            if current_checkin.comparison_with_yesterday and current_checkin.comparison_with_yesterday.get("breathlessness") == "worsened":
                 worsened_breathlessness_days += 1
             for prev in previous_checkins[:2]:
-                if prev.comparison_with_yesterday.get("breathlessness") == "worsened" or prev.breathlessness in ["moderate", "severe"]:
+                if (prev.comparison_with_yesterday and prev.comparison_with_yesterday.get("breathlessness") == "worsened") or prev.breathlessness in ["moderate", "severe"]:
                     worsened_breathlessness_days += 1
 
             if worsened_breathlessness_days >= 2:
@@ -269,8 +269,8 @@ class RulesEngine:
                 ))
                 generated_alerts.append(alert)
 
-            if current_checkin.comparison_with_yesterday.get("pain") == "worsened" and current_checkin.pain_level >= 5:
-                prev_pain = previous_checkins[0].pain_level if previous_checkins else 0
+            if current_checkin.comparison_with_yesterday and current_checkin.comparison_with_yesterday.get("pain") == "worsened" and (current_checkin.pain_level is not None and current_checkin.pain_level >= 5):
+                prev_pain = (previous_checkins[0].pain_level or 0) if previous_checkins else 0
                 if current_checkin.pain_level > prev_pain:
                     alert = Alert(
                         patient_id=patient_id,
