@@ -28,91 +28,91 @@ def seed_initial_data(db: Session):
         db.flush()
 
     # 2. Approved Knowledge Base Articles (KQ-01, KQ-04)
-    kb_stmt = select(KnowledgeArticle).where(KnowledgeArticle.article_code == "WOUND-01")
-    if not db.execute(kb_stmt).scalars().first():
-        articles = [
-            KnowledgeArticle(
-                article_code="WOUND-01",
-                title="Surgical Wound Care and Dressing Instructions",
-                category="WOUND_CARE",
-                keywords=["wound", "dressing", "incision", "stitches", "bath", "water", "dressing change"],
-                content_en="Keep your surgical dressing clean and dry for the first 5 days. You may take a sponge bath. If you notice any fluid discharge, increasing redness, or unpleasant smell, contact your care team immediately.",
-                content_hi="सर्जरी के घाव की पट्टी को पहले 5 दिनों तक सूखा और साफ रखें। आप स्पंज बाथ ले सकते हैं। यदि घाव से पानी या मवाद बहता है या लालिमा बढ़ती है, तो तुरंत डॉक्टर को सूचित करें।",
-                content_mr="शस्त्रक्रियेच्या जखमेची पट्टी पहिल्या ५ दिवसांपर्यंत कोरडी आणि स्वच्छ ठेवा. आपण स्पंज बाथ घेऊ शकता. जर जखमेतून पाणी किंवा पू येत असेल किंवा लालसरपणा वाढत असेल तर लगेच डॉक्टरांशी संपर्क साधा.",
-                version="v1.0.0",
-                is_approved=True
-            ),
-            KnowledgeArticle(
-                article_code="ACTIVITY-01",
-                title="Post-Discharge Walking & Physical Activity Guidelines",
-                category="ACTIVITY",
-                keywords=["walk", "walking", "steps", "stairs", "exercise", "lifting"],
-                content_en="Start with gentle indoor walking for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg. If you experience dizziness or shortness of breath, sit down immediately and rest.",
-                content_hi="दिन में दो बार 10-15 मिनट के लिए घर के अंदर धीमी गति से टहलना शुरू करें। 5 किलोग्राम से अधिक भारी वजन न उठाएँ। यदि चक्कर आए या साँस फूले तो तुरंत बैठकर आराम करें।",
-                content_mr="दिवसातून दोनदा १०-१५ मिनिटे घरातच हळू चालायला सुरुवात करा. ५ किलोपेक्षा जास्त वजन उचलू नका. चक्कर आल्यास किंवा धाप लागल्यास लगेच बसा आणि विश्रांती घ्या.",
-                version="v1.0.0",
-                is_approved=True
-            ),
-            KnowledgeArticle(
-                article_code="DIET-01",
-                title="Low-Sodium Heart-Healthy Diet Instructions",
-                category="DIET_INFO",
-                keywords=["salt", "sodium", "diet", "food", "oil", "spices"],
-                content_en="Adhere strictly to your low-sodium diet as prescribed. Limit table salt to less than 1 teaspoon per day. Avoid canned soups, pickles, and processed snacks. Drink small sips of water throughout the day.",
-                content_hi="डॉक्टर द्वारा बताई गई कम नमक वाली खुराक का सख्ती से पालन करें। प्रतिदिन एक छोटे चम्मच से कम नमक लें। अचार, पापड़ और डिब्बाबंद खाद्य पदार्थों से परहेज करें।",
-                content_mr="डॉक्टरांनी सांगितलेल्या कमी मिठाच्या आहाराचे काटेकोरपणे पालन करा. दररोज १ चमच्यापेक्षा कमी मीठ वापरा. लोणचे, पापड आणि प्रक्रिया केलेले अन्न टाळा. दिवसभरात थोडे-थोडे पाणी प्या.",
-                version="v1.0.0",
-                is_approved=True
-            )
-        ]
-        db.add_all(articles)
+    articles = [
+        KnowledgeArticle(
+            article_code="WOUND-01",
+            title="Surgical Wound Care and Dressing Instructions",
+            category="WOUND_CARE",
+            keywords=["wound", "dressing", "incision", "stitches", "bath", "water", "dressing change"],
+            content_en="Keep your surgical dressing clean and dry for the first 5 days. You may take a sponge bath. If you notice any fluid discharge, increasing redness, or unpleasant smell, contact your care team immediately.",
+            content_hi="सर्जरी के घाव की पट्टी को पहले 5 दिनों तक सूखा और साफ रखें। आप स्पंज बाथ ले सकते हैं। यदि घाव से पानी या मवाद बहता है या लालिमा बढ़ती है, तो तुरंत डॉक्टर को सूचित करें।",
+            content_mr="शस्त्रक्रियेच्या जखमेची पट्टी पहिल्या ५ दिवसांपर्यंत कोरडी आणि स्वच्छ ठेवा. आपण स्पंज बाथ घेऊ शकता. जर जखमेतून पाणी किंवा पू येत असेल किंवा लालसरपणा वाढत असेल तर लगेच डॉक्टरांशी संपर्क साधा.",
+            version="v1.0.0",
+            is_approved=True
+        ),
+        KnowledgeArticle(
+            article_code="ACTIVITY-01",
+            title="Post-Discharge Walking & Physical Activity Guidelines",
+            category="ACTIVITY",
+            keywords=["walk", "walking", "steps", "stairs", "exercise", "lifting"],
+            content_en="Start with gentle indoor walking for 10-15 minutes twice daily. Avoid lifting objects heavier than 5 kg. If you experience dizziness or shortness of breath, sit down immediately and rest.",
+            content_hi="दिन में दो बार 10-15 मिनट के लिए घर के अंदर धीमी गति से टहलना शुरू करें। 5 किलोग्राम से अधिक भारी वजन न उठाएँ। यदि चक्कर आए या साँस फूले तो तुरंत बैठकर आराम करें।",
+            content_mr="दिवसातून दोनदा १०-१५ मिनिटे घरातच हळू चालायला सुरुवात करा. ५ किलोपेक्षा जास्त वजन उचलू नका. चक्कर आल्यास किंवा धाप लागल्यास लगेच बसा आणि विश्रांती घ्या.",
+            version="v1.0.0",
+            is_approved=True
+        ),
+        KnowledgeArticle(
+            article_code="DIET-01",
+            title="Low-Sodium Heart-Healthy Diet Instructions",
+            category="DIET_INFO",
+            keywords=["salt", "sodium", "diet", "food", "oil", "spices"],
+            content_en="Adhere strictly to your low-sodium diet as prescribed. Limit table salt to less than 1 teaspoon per day. Avoid canned soups, pickles, and processed snacks. Drink small sips of water throughout the day.",
+            content_hi="डॉक्टर द्वारा बताई गई कम नमक वाली खुराक का सख्ती से पालन करें। प्रतिदिन एक छोटे चम्मच से कम नमक लें। अचार, पापड़ और डिब्बाबंद खाद्य पदार्थों से परहेज करें।",
+            content_mr="डॉक्टरांनी सांगितलेल्या कमी मिठाच्या आहाराचे काटेकोरपणे पालन करा. दररोज १ चमच्यापेक्षा कमी मीठ वापरा. लोणचे, पापड आणि प्रक्रिया केलेले अन्न टाळा. दिवसभरात थोडे-थोडे पाणी प्या.",
+            version="v1.0.0",
+            is_approved=True
+        )
+    ]
+    for art in articles:
+        if not db.execute(select(KnowledgeArticle).where(KnowledgeArticle.article_code == art.article_code)).scalars().first():
+            db.add(art)
 
     # 3. Clinician Escalation Rules (ES-01, ES-08)
-    rule_stmt = select(EscalationRule).where(EscalationRule.code == "RULE_SPO2_CRITICAL")
-    if not db.execute(rule_stmt).scalars().first():
-        rules = [
-            EscalationRule(
-                code="RULE_SPO2_CRITICAL",
-                name="Critical Oxygen Desaturation Alert",
-                category="VITALS",
-                severity="CRITICAL",
-                condition_json={"metric": "SPO2", "operator": "<", "threshold": 88.0},
-                action_json={"emergency_script": True, "notify_caregiver": True, "notify_care_team": True, "sla_minutes": 15}
-            ),
-            EscalationRule(
-                code="RULE_BP_HYPERTENSIVE_CRISIS",
-                name="Hypertensive Crisis Threshold",
-                category="VITALS",
-                severity="CRITICAL",
-                condition_json={"metric": "BP_SYSTOLIC", "operator": ">", "threshold": 180.0},
-                action_json={"emergency_script": True, "notify_caregiver": True, "notify_care_team": True, "sla_minutes": 15}
-            ),
-            EscalationRule(
-                code="RULE_SYMPTOM_SUSTAINED_BREATHLESSNESS",
-                name="Sustained Worsening Breathlessness Pattern",
-                category="TREND",
-                severity="HIGH",
-                condition_json={"symptom": "breathlessness", "trend": "worsened", "consecutive_days": 2},
-                action_json={"notify_care_team": True, "sla_minutes": 60}
-            ),
-            EscalationRule(
-                code="RULE_MED_REPEATED_MISS",
-                name="Repeated Medication Dose Non-Adherence",
-                category="MEDICATION",
-                severity="HIGH",
-                condition_json={"consecutive_misses": 2},
-                action_json={"notify_caregiver": True, "notify_care_team": True, "sla_minutes": 60}
-            ),
-            EscalationRule(
-                code="RULE_COMPOSITE_DECLINE_REVIEW",
-                name="Multi-Factor Clinical Pattern Decline",
-                category="COMPOSITE_DECLINE",
-                severity="HIGH",
-                condition_json={"co_occurring_indicators": 2},
-                action_json={"notify_care_team": True, "sla_minutes": 60}
-            )
-        ]
-        db.add_all(rules)
+    rules = [
+        EscalationRule(
+            code="RULE_SPO2_CRITICAL",
+            name="Critical Oxygen Desaturation Alert",
+            category="VITALS",
+            severity="CRITICAL",
+            condition_json={"metric": "SPO2", "operator": "<", "threshold": 88.0},
+            action_json={"emergency_script": True, "notify_caregiver": True, "notify_care_team": True, "sla_minutes": 15}
+        ),
+        EscalationRule(
+            code="RULE_BP_HYPERTENSIVE_CRISIS",
+            name="Hypertensive Crisis Threshold",
+            category="VITALS",
+            severity="CRITICAL",
+            condition_json={"metric": "BP_SYSTOLIC", "operator": ">", "threshold": 180.0},
+            action_json={"emergency_script": True, "notify_caregiver": True, "notify_care_team": True, "sla_minutes": 15}
+        ),
+        EscalationRule(
+            code="RULE_SYMPTOM_SUSTAINED_BREATHLESSNESS",
+            name="Sustained Worsening Breathlessness Pattern",
+            category="TREND",
+            severity="HIGH",
+            condition_json={"symptom": "breathlessness", "trend": "worsened", "consecutive_days": 2},
+            action_json={"notify_care_team": True, "sla_minutes": 60}
+        ),
+        EscalationRule(
+            code="RULE_MED_REPEATED_MISS",
+            name="Repeated Medication Dose Non-Adherence",
+            category="MEDICATION",
+            severity="HIGH",
+            condition_json={"consecutive_misses": 2},
+            action_json={"notify_caregiver": True, "notify_care_team": True, "sla_minutes": 60}
+        ),
+        EscalationRule(
+            code="RULE_COMPOSITE_DECLINE_REVIEW",
+            name="Multi-Factor Clinical Pattern Decline",
+            category="COMPOSITE_DECLINE",
+            severity="HIGH",
+            condition_json={"co_occurring_indicators": 2},
+            action_json={"notify_care_team": True, "sla_minutes": 60}
+        )
+    ]
+    for rule in rules:
+        if not db.execute(select(EscalationRule).where(EscalationRule.code == rule.code)).scalars().first():
+            db.add(rule)
 
     # 4. Sample Patient 1 (Mr. Ramesh Patil - Marathi/English)
     p1_stmt = select(Patient).where(Patient.id == "patient-demo-1")

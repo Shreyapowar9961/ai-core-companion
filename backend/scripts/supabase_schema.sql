@@ -12,7 +12,8 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 CREATE TABLE IF NOT EXISTS facilities (
     id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
     name VARCHAR(255) NOT NULL,
-    code VARCHAR(64) UNIQUE NOT NULL,
+    code VARCHAR(64) UNIQUE,
+    location VARCHAR(255),
     contact_phone VARCHAR(32),
     contact_email VARCHAR(128),
     address VARCHAR(255),
@@ -93,6 +94,7 @@ CREATE TABLE IF NOT EXISTS consents (
 CREATE TABLE IF NOT EXISTS care_plans (
     id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
     patient_id VARCHAR(64) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    version INT DEFAULT 1,
     diet_instructions TEXT,
     hydration_target_glasses INT DEFAULT 8,
     hydration_interval_hours INT DEFAULT 2,
@@ -130,6 +132,7 @@ CREATE TABLE IF NOT EXISTS medication_logs (
     patient_id VARCHAR(64) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     medication_schedule_id VARCHAR(64) REFERENCES medication_schedules(id) ON DELETE SET NULL,
     medicine_name VARCHAR(128) NOT NULL,
+    dosage VARCHAR(128),
     scheduled_time TIMESTAMP WITH TIME ZONE NOT NULL,
     actual_time TIMESTAMP WITH TIME ZONE,
     status VARCHAR(32) NOT NULL, -- 'TAKEN', 'MISSED', 'DEFERRED', 'PENDING'
@@ -187,11 +190,13 @@ CREATE TABLE IF NOT EXISTS symptom_checkins (
     dizziness VARCHAR(32) DEFAULT 'none',
     weakness VARCHAR(32) DEFAULT 'none',
     fever VARCHAR(32) DEFAULT 'none',
+    swelling VARCHAR(32) DEFAULT 'none',
     wound_status VARCHAR(32) DEFAULT 'healing_well',
     appetite VARCHAR(32) DEFAULT 'normal',
     sleep_quality VARCHAR(32) DEFAULT 'good',
     mood VARCHAR(32) DEFAULT 'good',
     other_symptoms_verbatim TEXT,
+    other_symptoms_structured JSONB DEFAULT '[]'::jsonb,
     comparison_with_yesterday JSONB DEFAULT '{}'::jsonb,
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -207,6 +212,7 @@ CREATE TABLE IF NOT EXISTS lifestyle_logs (
     actual_value FLOAT,
     unit VARCHAR(32),
     completion_status VARCHAR(32) DEFAULT 'COMPLETED',
+    reported_pain_difficulty TEXT,
     notes TEXT,
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -226,10 +232,19 @@ CREATE TABLE IF NOT EXISTS call_sessions (
     language_used VARCHAR(16) DEFAULT 'en',
     current_step_key VARCHAR(64),
     resume_context JSONB DEFAULT '{}'::jsonb,
+    interrupted_at TIMESTAMP WITH TIME ZONE,
+    is_deferred BOOLEAN DEFAULT FALSE,
+    deferred_until TIMESTAMP WITH TIME ZONE,
+    deferral_reason VARCHAR(255),
+    retry_count INT DEFAULT 0,
+    caller_phone VARCHAR(32),
+    audio_url VARCHAR(512),
+    callback_requested BOOLEAN DEFAULT FALSE,
     transferred_to_human BOOLEAN DEFAULT FALSE,
     transfer_reason VARCHAR(255),
     provider_call_id VARCHAR(128),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_call_sessions_patient ON call_sessions(patient_id);
 
@@ -243,8 +258,11 @@ CREATE TABLE IF NOT EXISTS call_turns (
     patient_audio_transcript TEXT,
     english_summary TEXT,
     detected_language VARCHAR(16) DEFAULT 'en',
+    intent VARCHAR(64),
+    extracted_entities JSONB DEFAULT '{}'::jsonb,
     was_unanswered BOOLEAN DEFAULT FALSE,
     repeat_count INT DEFAULT 0,
+    repeated_count INT DEFAULT 0,
     extracted_data JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
@@ -265,10 +283,12 @@ CREATE TABLE IF NOT EXISTS appointments (
     reschedule_reason VARCHAR(255),
     reschedule_task_created BOOLEAN DEFAULT FALSE,
     reschedule_notes TEXT,
+    missed_count INT DEFAULT 0,
     reminder_sent_7d BOOLEAN DEFAULT FALSE,
     reminder_sent_3d BOOLEAN DEFAULT FALSE,
     reminder_sent_1d BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id);
 
@@ -320,12 +340,15 @@ CREATE TABLE IF NOT EXISTS alerts (
     id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
     patient_id VARCHAR(64) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     rule_code VARCHAR(64) NOT NULL,
+    rule_id VARCHAR(64),
     severity VARCHAR(32) NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
     supporting_data JSONB DEFAULT '{}'::jsonb,
     status VARCHAR(32) DEFAULT 'OPEN', -- 'OPEN', 'ACKNOWLEDGED', 'RESOLVED'
     sla_due_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    caregiver_notified BOOLEAN DEFAULT FALSE,
+    caregiver_ack_at TIMESTAMP WITH TIME ZONE,
     acknowledged_at TIMESTAMP WITH TIME ZONE,
     acknowledged_by VARCHAR(128),
     resolved_at TIMESTAMP WITH TIME ZONE,
@@ -345,25 +368,47 @@ CREATE TABLE IF NOT EXISTS alert_action_logs (
     user_name VARCHAR(128) NOT NULL,
     action VARCHAR(32) NOT NULL,
     notes TEXT,
-    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- 18. Daily Progress Scores (PR-01 to PR-06)
+-- 18. Daily Progress Scores & Summaries (PR-01 to PR-06)
 CREATE TABLE IF NOT EXISTS daily_progress_scores (
     id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
     patient_id VARCHAR(64) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     score_date DATE NOT NULL,
     overall_score FLOAT NOT NULL,
-    symptom_score FLOAT NOT NULL,
-    medication_score FLOAT NOT NULL,
-    vitals_score FLOAT NOT NULL,
-    lifestyle_score FLOAT NOT NULL,
-    trend VARCHAR(32) NOT NULL, -- 'IMPROVING', 'STABLE', 'DECLINING'
-    voice_summary_script TEXT NOT NULL,
-    caregiver_summary TEXT NOT NULL,
+    medication_score FLOAT NOT NULL DEFAULT 100.0,
+    checkin_score FLOAT DEFAULT 100.0,
+    hydration_score FLOAT DEFAULT 100.0,
+    activity_score FLOAT DEFAULT 100.0,
+    symptom_score FLOAT,
+    vitals_score FLOAT,
+    lifestyle_score FLOAT,
+    trend VARCHAR(32), -- 'IMPROVING', 'STABLE', 'DECLINING'
+    is_declining BOOLEAN DEFAULT FALSE,
+    declining_indicators JSONB DEFAULT '[]'::jsonb,
+    calculation_breakdown JSONB DEFAULT '{}'::jsonb,
+    voice_summary_script TEXT,
+    caregiver_summary TEXT,
     calculated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_patient_score_date UNIQUE (patient_id, score_date)
 );
+
+CREATE TABLE IF NOT EXISTS patient_summaries (
+    id VARCHAR(64) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    patient_id VARCHAR(64) NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
+    summary_date DATE DEFAULT CURRENT_DATE,
+    summary_type VARCHAR(32) DEFAULT 'PATIENT_VOICE',
+    language VARCHAR(16) DEFAULT 'en',
+    content TEXT NOT NULL,
+    delivered_via VARCHAR(32) DEFAULT 'VOICE_CALL',
+    is_delivered BOOLEAN DEFAULT FALSE,
+    delivered_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_summaries_patient ON patient_summaries(patient_id);
 
 -- 19. Immutable Governance & Configuration Audit Trails (GV-03, GV-04, GV-05)
 CREATE TABLE IF NOT EXISTS audit_logs (
