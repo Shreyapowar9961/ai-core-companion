@@ -97,16 +97,7 @@ export const Sidebar: React.FC = () => {
           </nav>
         </div>
 
-        {/* Clinical Guardrail Indicator */}
-        <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
-          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold mb-1">
-            <ShieldAlert className="w-4 h-4" />
-            <span>Clinical Protocols Active</span>
-          </div>
-          <p className="text-[11px] text-slate-400 leading-relaxed">
-            Deterministic physician-configured thresholds active with immediate 15-minute emergency escalation.
-          </p>
-        </div>
+       
       </div>
 
       {/* Facility Footer */}

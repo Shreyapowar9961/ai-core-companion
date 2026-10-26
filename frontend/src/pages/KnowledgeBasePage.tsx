@@ -139,7 +139,6 @@ export const KnowledgeBasePage: React.FC = () => {
           <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center space-x-3 text-xs text-emerald-900">
             <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0" />
             <div>
-              <p className="font-bold">Clinical Governance Mandate (KQ-01 & KQ-04)</p>
               <p className="text-[11px] text-emerald-800">
                 All voice conversational responses are strictly grounded in this versioned library. If information is not present, the agent states it is unavailable plainly (KQ-02).
               </p>

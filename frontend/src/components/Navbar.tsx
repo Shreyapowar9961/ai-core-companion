@@ -23,13 +23,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator }) => {
             <HeartPulse className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-            <div className="flex items-center space-x-2">
-              <span className="font-bold text-lg text-slate-900 tracking-tight">AI Care Companion</span>
-              <span className="bg-emerald-50 text-emerald-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Hospital Network Active
-              </span>
-            </div>
+           
             <p className="text-xs text-slate-500 font-medium hidden sm:block">
               Apex Heart & Recovery Institute · Multi-Facility Recovery Engine
             </p>
