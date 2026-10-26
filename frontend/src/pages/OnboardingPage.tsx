@@ -21,6 +21,7 @@ export const OnboardingPage: React.FC = () => {
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [createdPatientId, setCreatedPatientId] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState({
@@ -164,14 +165,13 @@ export const OnboardingPage: React.FC = () => {
       activate_if_complete: formData.activate_if_complete
     };
 
+    setSubmitError(null);
     try {
       const patient = await apiClient.registerPatient(token, payload);
       setCreatedPatientId(patient.id);
       setStep(4);
     } catch (err: any) {
-      alert(`Onboarding submission notice: ${err.message}. Registered in local state.`);
-      setCreatedPatientId('pt-new-' + Date.now());
-      setStep(4);
+      setSubmitError(err.message || 'Failed to register patient in clinical system.');
     } finally {
       setIsSubmitting(false);
     }
@@ -540,6 +540,13 @@ export const OnboardingPage: React.FC = () => {
                 </p>
               </div>
             </div>
+
+            {submitError && (
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <span>{submitError}</span>
+              </div>
+            )}
 
             <div className="pt-4 border-t border-slate-100 flex justify-between">
               <button

@@ -24,7 +24,7 @@ import {
 
 export const PatientDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const patientId = id || 'patient-demo-1';
+  const patientId = id || 'patient-apex-101';
   const { token, currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -47,197 +47,45 @@ export const PatientDetailPage: React.FC = () => {
   const [pauseReason, setPauseReason] = useState('');
   const [showPauseModal, setShowPauseModal] = useState(false);
 
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   useEffect(() => {
+    if (!token) return;
     setIsLoading(true);
+    setErrorMessage(null);
+
+    // 1. Fetch Patient Master Record
     apiClient.getPatient(token, patientId)
-      .then((data) => setPatient(data))
-      .catch(() => {
-        // Fallback demo patient
-        setPatient({
-          id: patientId,
-          facility_id: 'facility-apex-1',
-          first_name: 'Ramesh',
-          last_name: 'Patil',
-          dob: '1955-06-12',
-          gender: 'Male',
-          phone: '+919820011223',
-          email: 'ramesh.patil@example.com',
-          diagnosis: 'Post-CABG (Coronary Artery Bypass Graft)',
-          discharge_date: '2026-10-20',
-          programme_duration_days: 30,
-          preferred_language: 'en',
-          status: 'ACTIVE',
-          call_window_start: '09:00',
-          call_window_end: '18:00',
-          checkin_morning_time: '09:30',
-          checkin_evening_time: '17:30',
-          dnd_start: '21:00',
-          dnd_end: '07:00',
-          retry_limit: 3,
-          max_deferrals: 2,
-          treating_doctor_name: 'Dr. Neha Kulkarni',
-          treating_doctor_phone: '+919811122233',
-          treating_doctor_specialty: 'Cardiothoracic Surgery',
-          created_at: new Date().toISOString(),
-          consent: {
-            id: 'c-1',
-            patient_id: patientId,
-            voice_contact: true,
-            call_recording: true,
-            data_processing: true,
-            caregiver_disclosure: true,
-            emergency_escalation: true,
-            consented_at: '2026-10-20T10:00:00Z'
-          },
-          caregivers: [
-            {
-              id: 'cg-1',
-              patient_id: patientId,
-              name: 'Suresh Patil',
-              relationship: 'Son',
-              phone: '+919833001122',
-              email: 'suresh@example.com',
-              is_authorized: true,
-              consented_channels: ['VOICE_CALL', 'SMS', 'WHATSAPP'],
-              consented_categories: ['ALL']
-            }
-          ],
-          care_plan: {
-            id: 'cp-1',
-            patient_id: patientId,
-            hydration_target_glasses: 8,
-            hydration_interval_hours: 2,
-            activity_target_minutes: 20,
-            activity_target_steps: 2000,
-            diet_instructions: 'Low sodium, low cholesterol cardiac diet.',
-            medications: [
-              {
-                id: 'med-1',
-                patient_id: patientId,
-                medicine_name: 'Atorvastatin',
-                dosage: '20mg',
-                frequency: 'ONCE_DAILY',
-                dose_times: ['09:00'],
-                instructions: 'Take after breakfast with water',
-                route: 'ORAL',
-                effective_start_date: '2026-10-20',
-                is_active: true
-              },
-              {
-                id: 'med-2',
-                patient_id: patientId,
-                medicine_name: 'Aspirin',
-                dosage: '75mg',
-                frequency: 'ONCE_DAILY',
-                dose_times: ['13:00'],
-                instructions: 'Take after lunch',
-                route: 'ORAL',
-                effective_start_date: '2026-10-20',
-                is_active: true
-              }
-            ],
-            vitals_thresholds: [
-              {
-                id: 'vt-1',
-                patient_id: patientId,
-                vital_type: 'SPO2',
-                unit: '%',
-                plausible_min: 50,
-                plausible_max: 100,
-                normal_min: 94,
-                normal_max: 100,
-                warning_min: 90,
-                critical_min: 88
-              },
-              {
-                id: 'vt-2',
-                patient_id: patientId,
-                vital_type: 'BP_SYSTOLIC',
-                unit: 'mmHg',
-                plausible_min: 60,
-                plausible_max: 260,
-                normal_min: 100,
-                normal_max: 130,
-                warning_max: 150,
-                critical_max: 180
-              }
-            ]
-          }
-        });
-      });
-
-    // Vitals
-    apiClient.getPatientVitals(token, patientId)
-      .then((data) => setVitals(data))
-      .catch(() => {
-        setVitals([
-          { id: 'v1', patient_id: patientId, vital_type: 'SPO2', value: 86, unit: '%', recorded_at: new Date().toISOString(), status: 'CRITICAL', voice_confirmed: true },
-          { id: 'v2', patient_id: patientId, vital_type: 'BP_SYSTOLIC', value: 125, secondary_value: 82, unit: 'mmHg', recorded_at: new Date().toISOString(), status: 'NORMAL', voice_confirmed: true },
-          { id: 'v3', patient_id: patientId, vital_type: 'SPO2', value: 95, unit: '%', recorded_at: new Date(Date.now() - 86400000).toISOString(), status: 'NORMAL', voice_confirmed: true }
-        ]);
-      });
-
-    // Symptoms
-    apiClient.getPatientSymptoms(token, patientId)
-      .then((data) => setSymptoms(data))
-      .catch(() => {
-        setSymptoms([
-          {
-            id: 's1',
-            patient_id: patientId,
-            checkin_type: 'MORNING_CHECKIN',
-            recorded_at: new Date().toISOString(),
-            pain_level: 8,
-            breathlessness: 'moderate',
-            dizziness: 'none',
-            weakness: 'mild',
-            fever: 'none',
-            wound_status: 'healing_well',
-            comparison_with_yesterday: { pain: 'worsened', breathlessness: 'worsened' }
-          }
-        ]);
-      });
-
-    // Calls
-    apiClient.getPatientCalls(token, patientId)
-      .then((data) => setCalls(data))
-      .catch(() => {
-        setCalls([
-          {
-            id: 'call-1',
-            patient_id: patientId,
-            direction: 'OUTBOUND',
-            call_type: 'MORNING_CHECKIN',
-            start_time: new Date().toISOString(),
-            duration_seconds: 145,
-            status: 'COMPLETED',
-            disposition: 'COMPLETED',
-            language_used: 'en',
-            transferred_to_human: false,
-            created_at: new Date().toISOString()
-          }
-        ]);
-      });
-
-    // Today Progress Score (PR-01)
-    apiClient.getTodayProgressScore(token, patientId)
-      .then((score) => setTodayScore(score))
-      .catch(() => {
-        setTodayScore({
-          id: 'score-1',
-          patient_id: patientId,
-          score_date: new Date().toISOString().split('T')[0],
-          overall_score: 68.5,
-          symptom_score: 55.0,
-          medication_score: 80.0,
-          vitals_score: 60.0,
-          lifestyle_score: 85.0,
-          trend: 'DECLINING',
-          voice_summary_script: 'Today you recorded taking Atorvastatin, but reported increased pain and lower oxygen. Your care team has been notified.',
-          caregiver_summary: 'Ramesh completed morning check-in. Alert generated for oxygen reading 86%. Pain level 8/10 noted.'
-        });
+      .then((data) => {
+        setPatient(data);
+        setErrorMessage(null);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch patient:', err.message);
+        setPatient(null);
+        setErrorMessage(err.message || 'Patient record not found or access restricted by facility multi-tenancy.');
       })
       .finally(() => setIsLoading(false));
+
+    // 2. Fetch Vitals History
+    apiClient.getPatientVitals(token, patientId)
+      .then((data) => setVitals(data || []))
+      .catch(() => setVitals([]));
+
+    // 3. Fetch Symptoms History
+    apiClient.getPatientSymptoms(token, patientId)
+      .then((data) => setSymptoms(data || []))
+      .catch(() => setSymptoms([]));
+
+    // 4. Fetch Calls History
+    apiClient.getPatientCalls(token, patientId)
+      .then((data) => setCalls(data || []))
+      .catch(() => setCalls([]));
+
+    // 5. Fetch Today's Progress Score
+    apiClient.getTodayProgressScore(token, patientId)
+      .then((score) => setTodayScore(score))
+      .catch(() => setTodayScore(null));
 
   }, [token, patientId]);
 
@@ -287,8 +135,28 @@ export const PatientDetailPage: React.FC = () => {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="p-12 text-center text-slate-500 font-medium flex items-center justify-center gap-2">
+        <div className="w-5 h-5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <span>Loading Patient 360 Record from Database...</span>
+      </div>
+    );
+  }
+
   if (!patient) {
-    return <div className="p-8 text-center text-slate-500 font-medium">Loading Patient 360 Profile...</div>;
+    return (
+      <div className="p-12 text-center bg-white rounded-2xl border border-slate-200 shadow-xs max-w-md mx-auto my-12 space-y-3">
+        <p className="font-bold text-slate-800 text-base">Patient Record Not Found</p>
+        <p className="text-xs text-slate-500">{errorMessage || 'The requested patient does not exist or access is restricted by facility multi-tenancy.'}</p>
+        <button
+          onClick={() => navigate('/')}
+          className="px-4 py-2 bg-indigo-600 text-white font-semibold text-xs rounded-xl shadow-xs hover:bg-indigo-700 transition-colors"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
   }
 
   return (

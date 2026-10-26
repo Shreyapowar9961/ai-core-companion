@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import {
@@ -15,9 +15,29 @@ import {
 
 export const CallConsolePage: React.FC = () => {
   const { token } = useAuth();
-  const [patientId, setPatientId] = useState('patient-demo-1');
-  const [language, setLanguage] = useState<'en' | 'hi' | 'mr'>('mr');
+  const [patientId, setPatientId] = useState('patient-apex-101');
+  const [language, setLanguage] = useState<'en' | 'hi' | 'mr'>('en');
   const [callType, setCallType] = useState('MORNING_CHECKIN');
+  const [patients, setPatients] = useState<Array<{ id: string; name: string; diagnosis: string; lang: 'en' | 'hi' | 'mr' }>>([]);
+
+  useEffect(() => {
+    if (!token) return;
+    apiClient.getPatients(token)
+      .then((data) => {
+        if (data && data.length > 0) {
+          const mapped = data.map((p) => ({
+            id: p.id,
+            name: `${p.first_name} ${p.last_name}`,
+            diagnosis: p.diagnosis,
+            lang: (p.preferred_language || 'en') as 'en' | 'hi' | 'mr'
+          }));
+          setPatients(mapped);
+          setPatientId(mapped[0].id);
+          setLanguage(mapped[0].lang);
+        }
+      })
+      .catch((err) => console.warn('Could not fetch patients for call console:', err.message));
+  }, [token]);
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [stepKey, setStepKey] = useState<string>('IDENTITY_CHECK');
@@ -41,16 +61,7 @@ export const CallConsolePage: React.FC = () => {
         { agent: session.initial_prompt_text, step: session.current_step_key || 'IDENTITY_CHECK', timestamp: new Date().toLocaleTimeString() }
       ]);
     } catch (err: any) {
-      const mockId = 'call-' + Date.now();
-      setSessionId(mockId);
-      setStepKey('IDENTITY_CHECK');
-      const initial = language === 'mr'
-        ? 'Namaskar Ramesh ji, me Apex Hospital madhun AI Care Companion boltoy. Tumi bolat ahat ka?'
-        : language === 'hi'
-        ? 'Namaste Ramesh ji, main Apex Care se bol raha hu. Kya aap Ramesh ji baat kar rahe hain?'
-        : 'Hello Ramesh Patil, this is your AI Care Companion calling from Apex Heart Institute. Am I speaking with Ramesh?';
-      setAgentPrompt(initial);
-      setTurns([{ agent: initial, step: 'IDENTITY_CHECK', timestamp: new Date().toLocaleTimeString() }]);
+      alert(`Error starting call session: ${err.message}`);
     }
   };
 
@@ -84,39 +95,7 @@ export const CallConsolePage: React.FC = () => {
         return copy;
       });
     } catch (err: any) {
-      // Local fallback
-      let nextS = 'WELLBEING';
-      let nextP = 'Thank you. How are you feeling overall this morning?';
-
-      if (curStep === 'IDENTITY_CHECK') {
-        nextS = 'WELLBEING';
-        nextP = language === 'mr'
-          ? 'Chan, Ramesh ji. Aaj tumhala kasa vatatay? Chaateet dukhna kiwa tras ahe ka?'
-          : 'Thank you Ramesh. How are you feeling overall since discharge? Any chest discomfort?';
-      } else if (curStep === 'WELLBEING') {
-        nextS = 'SYMPTOMS_PAIN';
-        nextP = language === 'mr'
-          ? '0 te 10 chya scale var, 0 mhanje vedna nahi aani 10 mhanje asahy vedna, tumhala kiti dukhna ahe?'
-          : 'On a scale from 0 to 10, how would you rate your pain right now?';
-      } else if (curStep === 'SYMPTOMS_PAIN') {
-        nextS = 'SYMPTOMS_BREATHLESSNESS';
-        nextP = 'Have you had any shortness of breath today? Is it better, unchanged, or worse than yesterday?';
-      } else if (curStep === 'SYMPTOMS_BREATHLESSNESS') {
-        nextS = 'VITALS_SPO2';
-        nextP = 'Please measure your oxygen saturation SpO2 with your pulse oximeter and tell me the reading.';
-      } else {
-        nextP = 'Check-in completed. Thank you and take care!';
-        setIsCompleted(true);
-      }
-
-      setStepKey(nextS);
-      setAgentPrompt(nextP);
-      setTurns((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last) last.agent = nextP;
-        return copy;
-      });
+      alert(`Error processing speech turn: ${err.message}`);
     }
   };
 
@@ -176,12 +155,24 @@ export const CallConsolePage: React.FC = () => {
               <label className="font-semibold text-slate-700 block mb-1">Select Patient</label>
               <select
                 value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
+                onChange={(e) => {
+                  const selId = e.target.value;
+                  setPatientId(selId);
+                  const p = patients.find(item => item.id === selId);
+                  if (p) setLanguage(p.lang);
+                }}
                 disabled={sessionId !== null && !isCompleted}
                 className="w-full border border-slate-300 rounded-xl px-3 py-2 bg-white font-medium"
               >
-                <option value="patient-demo-1">Ramesh Patil (Post-CABG, Marathi/English)</option>
-                <option value="patient-demo-2">Sunita Deshmukh (Post-Angioplasty, Hindi)</option>
+                {patients.length > 0 ? (
+                  patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.diagnosis})
+                    </option>
+                  ))
+                ) : (
+                  <option value={patientId}>{patientId}</option>
+                )}
               </select>
             </div>
 
