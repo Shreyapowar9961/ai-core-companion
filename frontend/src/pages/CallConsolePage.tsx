@@ -77,7 +77,7 @@ export const CallConsolePage: React.FC = () => {
 
     try {
       const res = await apiClient.processCallTurn(token, sessionId, speech);
-      setStepKey(res.next_step_key);
+      setStepKey(res.next_step_key || res.step_key);
       setAgentPrompt(res.agent_prompt_text);
       if (res.language) setLanguage(res.language);
       if (res.is_completed) setIsCompleted(true);

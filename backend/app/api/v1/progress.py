@@ -14,6 +14,7 @@ from app.services.progress_service import ProgressService
 router = APIRouter(prefix="/progress", tags=["Progress & Recovery Reporting"])
 
 @router.get("/patient/{patient_id}/today", response_model=DailyProgressScoreResponse)
+@router.get("/today/{patient_id}", response_model=DailyProgressScoreResponse)
 def get_today_progress_score(
     patient_id: str,
     db: Session = Depends(get_db),
@@ -28,6 +29,8 @@ def get_today_progress_score(
     return score
 
 @router.get("/patient/{patient_id}/trends", response_model=PatientTrendViewResponse)
+@router.get("/patient/{patient_id}/history", response_model=PatientTrendViewResponse)
+@router.get("/history/{patient_id}", response_model=PatientTrendViewResponse)
 def get_progress_trends(
     patient_id: str,
     days: int = 7,

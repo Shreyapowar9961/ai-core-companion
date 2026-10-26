@@ -70,10 +70,10 @@ export const apiClient = {
 
   // Dashboard & Metrics
   getDashboardMetrics: (token?: string | null, facilityId?: string) =>
-    fetchWithAuth<DashboardMetrics>(`/dashboard/metrics${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
+    fetchWithAuth<DashboardMetrics>(`/dashboard/summary${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
 
   getPriorityPatients: (token?: string | null, facilityId?: string) =>
-    fetchWithAuth<PriorityPatientItem[]>(`/dashboard/priority-list${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
+    fetchWithAuth<PriorityPatientItem[]>(`/dashboard/priority-patients${facilityId ? `?facility_id=${facilityId}` : ''}`, token),
 
   // Patients
   getPatients: (token?: string | null, facilityId?: string) =>
@@ -101,20 +101,20 @@ export const apiClient = {
     }),
 
   withdrawConsent: (token: string | null | undefined, id: string, scope: string = 'FULL', reason?: string) =>
-    fetchWithAuth<any>(`/patients/${id}/withdraw-consent`, token, {
+    fetchWithAuth<any>(`/patients/${id}/consent/withdraw`, token, {
       method: 'POST',
-      body: JSON.stringify({ withdrawal_scope: scope, reason }),
+      body: JSON.stringify({ scope, reason }),
     }),
 
   // Clinical & Vitals
   getPatientVitals: (token: string | null | undefined, patientId: string) =>
-    fetchWithAuth<VitalReading[]>(`/vitals/history/${patientId}`, token),
+    fetchWithAuth<VitalReading[]>(`/vitals/patient/${patientId}/readings`, token),
 
   getPatientSymptoms: (token: string | null | undefined, patientId: string) =>
-    fetchWithAuth<SymptomCheckin[]>(`/checkins/history/${patientId}`, token),
+    fetchWithAuth<SymptomCheckin[]>(`/checkins/patient/${patientId}`, token),
 
   recordManualVitals: (token: string | null | undefined, patientId: string, vitalType: string, value: number, secondaryValue?: number, unit: string = '%') =>
-    fetchWithAuth<VitalReading>(`/vitals/record`, token, {
+    fetchWithAuth<VitalReading>(`/vitals/patient/${patientId}/reading`, token, {
       method: 'POST',
       body: JSON.stringify({
         patient_id: patientId,
@@ -128,10 +128,10 @@ export const apiClient = {
 
   // Progress & Reporting
   getPatientProgressScores: (token: string | null | undefined, patientId: string) =>
-    fetchWithAuth<DailyProgressScore[]>(`/progress/history/${patientId}`, token),
+    fetchWithAuth<DailyProgressScore[]>(`/progress/patient/${patientId}/trends`, token),
 
   getTodayProgressScore: (token: string | null | undefined, patientId: string) =>
-    fetchWithAuth<DailyProgressScore>(`/progress/today/${patientId}`, token),
+    fetchWithAuth<DailyProgressScore>(`/progress/patient/${patientId}/today`, token),
 
   // Alerts & Triage
   getAlerts: (token?: string | null, status?: string) =>
@@ -151,28 +151,31 @@ export const apiClient = {
 
   // Conversation & Call Simulator
   startCallSession: (token: string | null | undefined, patientId: string, callType: string = 'MORNING_CHECKIN', language?: string) =>
-    fetchWithAuth<any>(`/conversation/sessions/initiate`, token, {
+    fetchWithAuth<any>(`/conversation/start`, token, {
       method: 'POST',
       body: JSON.stringify({
         patient_id: patientId,
         call_type: callType,
         direction: 'OUTBOUND',
+        language: language,
         initial_language: language
       }),
     }),
 
   processCallTurn: (token: string | null | undefined, sessionId: string, userSpeech: string) =>
-    fetchWithAuth<any>(`/conversation/turns/process`, token, {
+    fetchWithAuth<any>(`/conversation/turn`, token, {
       method: 'POST',
       body: JSON.stringify({
         session_id: sessionId,
+        user_speech_text: userSpeech,
         user_speech: userSpeech
       }),
     }),
 
   resumeInterruptedCall: (token: string | null | undefined, sessionId: string) =>
-    fetchWithAuth<any>(`/conversation/sessions/${sessionId}/resume`, token, {
+    fetchWithAuth<any>(`/conversation/resume`, token, {
       method: 'POST',
+      body: JSON.stringify({ session_id: sessionId }),
     }),
 
   getPatientCalls: (token: string | null | undefined, patientId: string) =>

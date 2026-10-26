@@ -15,6 +15,16 @@ from app.core.audit import log_audit_event, log_config_audit
 
 router = APIRouter(prefix="/vitals", tags=["Vitals Monitoring"])
 
+@router.post("/record", response_model=VitalReadingResponse, status_code=status.HTTP_201_CREATED)
+def record_vital_reading_direct(
+    req: VitalReadingCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user)
+):
+    if not req.patient_id:
+        raise HTTPException(status_code=400, detail="patient_id is required in request body")
+    return record_vital_reading(req.patient_id, req, db, current_user)
+
 @router.post("/patient/{patient_id}/reading", response_model=VitalReadingResponse, status_code=status.HTTP_201_CREATED)
 def record_vital_reading(
     patient_id: str,
@@ -77,6 +87,8 @@ def record_vital_reading(
     return reading
 
 @router.get("/patient/{patient_id}/readings", response_model=List[VitalReadingResponse])
+@router.get("/history/{patient_id}", response_model=List[VitalReadingResponse])
+@router.get("/patient/{patient_id}/history", response_model=List[VitalReadingResponse])
 def list_patient_vitals(
     patient_id: str,
     vital_type: str = None,

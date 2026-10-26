@@ -60,9 +60,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
   }, [token, currentUser]);
 
   const filteredPatients = priorityPatients.filter((p) => {
+    const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || (p as any).name || '';
     const matchesSearch =
-      `${p.first_name} ${p.last_name}`.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.diagnosis.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.diagnosis || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (p.inclusion_reasons && p.inclusion_reasons.some(r => r.toLowerCase().includes(searchQuery.toLowerCase())));
 
     const matchesTier = selectedTier === 'ALL' || p.priority_tier === selectedTier;
@@ -233,7 +234,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
                 <div className="space-y-2 max-w-2xl">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-sm text-slate-900">
-                      {patient.first_name} {patient.last_name}
+                      {`${patient.first_name || ''} ${patient.last_name || ''}`.trim() || (patient as any).name || 'Patient'}
                     </span>
                     <span className="text-xs text-slate-400 font-mono">({patient.patient_id})</span>
                     <StatusBadge status={patient.priority_tier} size="sm" />

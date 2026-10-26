@@ -79,6 +79,8 @@ def submit_symptom_checkin(
     return checkin
 
 @router.get("/patient/{patient_id}", response_model=List[SymptomCheckinResponse])
+@router.get("/history/{patient_id}", response_model=List[SymptomCheckinResponse])
+@router.get("/patient/{patient_id}/history", response_model=List[SymptomCheckinResponse])
 def list_patient_checkins(
     patient_id: str,
     limit: int = 30,

@@ -171,7 +171,7 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
 
     try {
       const res = await apiClient.processCallTurn(token, sessionId, speechText);
-      setStepKey(res.next_step_key);
+      setStepKey(res.next_step_key || res.step_key);
       setAgentPrompt(res.agent_prompt_text);
       setTurnIndex(res.turn_index);
       if (res.language) setLanguage(res.language);

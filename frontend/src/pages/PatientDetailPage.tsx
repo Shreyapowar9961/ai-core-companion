@@ -402,17 +402,23 @@ export const PatientDetailPage: React.FC = () => {
             </h3>
 
             <div className="space-y-2 text-xs">
-              {patient.care_plan?.medications.map((m) => (
-                <div key={m.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-bold text-slate-900">{m.medicine_name} {m.dosage}</span>
-                    <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-sm font-medium">
-                      {m.frequency.replace('_', ' ')}
-                    </span>
+              {patient.care_plan?.medications && patient.care_plan.medications.length > 0 ? (
+                patient.care_plan.medications.map((m) => (
+                  <div key={m.id || m.medicine_name} className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
+                    <div className="flex justify-between items-center">
+                      <span className="font-bold text-slate-900">{m.medicine_name} {m.dosage}</span>
+                      <span className="text-[10px] bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-sm font-medium">
+                        {(m.frequency || '').replace('_', ' ')}
+                      </span>
+                    </div>
+                    <p className="text-slate-500 text-[11px]">{m.instructions}</p>
                   </div>
-                  <p className="text-slate-500 text-[11px]">{m.instructions}</p>
+                ))
+              ) : (
+                <div className="p-4 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                  No active medication schedule configured for this recovery period.
                 </div>
-              ))}
+              )}
             </div>
 
             {/* Guardrail Note */}
@@ -448,30 +454,38 @@ export const PatientDetailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {vitals.map((v) => (
-                <tr key={v.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-700">
-                    {new Date(v.recorded_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-900">{v.vital_type}</td>
-                  <td className="px-4 py-3 font-bold text-slate-800">
-                    {v.value} {v.secondary_value ? `/${v.secondary_value}` : ''} {v.unit}
-                  </td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={v.status} size="sm" />
-                  </td>
-                  <td className="px-4 py-3">
-                    {v.voice_confirmed ? (
-                      <span className="text-emerald-600 font-semibold flex items-center">
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
-                        Confirmed via Voice
-                      </span>
-                    ) : (
-                      <span className="text-slate-400">Manual Entry</span>
-                    )}
+              {vitals.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                    No vital readings recorded yet for this patient.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                vitals.map((v) => (
+                  <tr key={v.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-700">
+                      {new Date(v.recorded_at).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-900">{v.vital_type}</td>
+                    <td className="px-4 py-3 font-bold text-slate-800">
+                      {v.value} {v.secondary_value ? `/${v.secondary_value}` : ''} {v.unit}
+                    </td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={v.status} size="sm" />
+                    </td>
+                    <td className="px-4 py-3">
+                      {v.voice_confirmed ? (
+                        <span className="text-emerald-600 font-semibold flex items-center">
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                          Confirmed via Voice
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">Manual Entry</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -496,28 +510,36 @@ export const PatientDetailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {symptoms.map((s) => (
-                <tr key={s.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-700">
-                    {new Date(s.recorded_at).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-800">{s.checkin_type}</td>
-                  <td className="px-4 py-3">
-                    <span className={`font-bold ${s.pain_level >= 8 ? 'text-rose-600' : 'text-slate-800'}`}>
-                      {s.pain_level}/10
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 capitalize font-medium text-slate-700">{s.breathlessness}</td>
-                  <td className="px-4 py-3 text-slate-600">{s.fever} / {s.wound_status}</td>
-                  <td className="px-4 py-3">
-                    {s.comparison_with_yesterday && s.comparison_with_yesterday.pain === 'worsened' ? (
-                      <span className="text-rose-600 font-semibold">Worsened Pain</span>
-                    ) : (
-                      <span className="text-emerald-600 font-medium">Stable</span>
-                    )}
+              {symptoms.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    No symptom check-ins recorded yet for this patient.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                symptoms.map((s) => (
+                  <tr key={s.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-700">
+                      {new Date(s.recorded_at).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-800">{s.checkin_type}</td>
+                    <td className="px-4 py-3">
+                      <span className={`font-bold ${s.pain_level >= 8 ? 'text-rose-600' : 'text-slate-800'}`}>
+                        {s.pain_level}/10
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 capitalize font-medium text-slate-700">{s.breathlessness}</td>
+                    <td className="px-4 py-3 text-slate-600">{s.fever} / {s.wound_status}</td>
+                    <td className="px-4 py-3">
+                      {s.comparison_with_yesterday && s.comparison_with_yesterday.pain === 'worsened' ? (
+                        <span className="text-rose-600 font-semibold">Worsened Pain</span>
+                      ) : (
+                        <span className="text-emerald-600 font-medium">Stable</span>
+                      )}
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -532,21 +554,27 @@ export const PatientDetailPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {patient.care_plan?.medications.map((m) => (
-              <div key={m.id} className="p-4 rounded-xl border border-slate-200 space-y-2 bg-slate-50/50">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-bold text-sm text-slate-900">{m.medicine_name}</h4>
-                  <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-sm text-xs">
-                    {m.dosage}
-                  </span>
+            {patient.care_plan?.medications && patient.care_plan.medications.length > 0 ? (
+              patient.care_plan.medications.map((m) => (
+                <div key={m.id || m.medicine_name} className="p-4 rounded-xl border border-slate-200 space-y-2 bg-slate-50/50">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-bold text-sm text-slate-900">{m.medicine_name}</h4>
+                    <span className="bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded-sm text-xs">
+                      {m.dosage}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600">{m.instructions}</p>
+                  <div className="flex items-center space-x-4 text-[11px] text-slate-500 pt-1">
+                    <span>Frequency: {m.frequency}</span>
+                    <span>Times: {Array.isArray(m.dose_times) ? m.dose_times.join(', ') : m.dose_times}</span>
+                  </div>
                 </div>
-                <p className="text-xs text-slate-600">{m.instructions}</p>
-                <div className="flex items-center space-x-4 text-[11px] text-slate-500 pt-1">
-                  <span>Frequency: {m.frequency}</span>
-                  <span>Times: {m.dose_times.join(', ')}</span>
-                </div>
+              ))
+            ) : (
+              <div className="col-span-2 p-6 text-center text-slate-400 text-xs bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                No active prescription schedule configured in this care plan.
               </div>
-            ))}
+            )}
           </div>
 
           <div className="p-4 bg-slate-100 rounded-xl space-y-2">
@@ -592,20 +620,28 @@ export const PatientDetailPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {calls.map((c) => (
-                <tr key={c.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-medium text-slate-700">
-                    {new Date(c.start_time).toLocaleString()}
-                  </td>
-                  <td className="px-4 py-3 font-bold text-slate-800">{c.direction} · {c.call_type}</td>
-                  <td className="px-4 py-3 uppercase font-semibold text-indigo-700">{c.language_used}</td>
-                  <td className="px-4 py-3 text-slate-600">{c.duration_seconds}s</td>
-                  <td className="px-4 py-3 font-semibold text-slate-800">{c.disposition || 'IN_PROGRESS'}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={c.status} size="sm" />
+              {calls.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                    No telephone check-in calls recorded yet for this patient.
                   </td>
                 </tr>
-              ))}
+              ) : (
+                calls.map((c) => (
+                  <tr key={c.id} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-medium text-slate-700">
+                      {new Date((c as any).start_time || (c as any).created_at || Date.now()).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3 font-bold text-slate-800">{c.direction} · {c.call_type}</td>
+                    <td className="px-4 py-3 uppercase font-semibold text-indigo-700">{c.language_used}</td>
+                    <td className="px-4 py-3 text-slate-600">{c.duration_seconds}s</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800">{c.disposition || 'IN_PROGRESS'}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={c.status} size="sm" />
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

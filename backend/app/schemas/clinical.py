@@ -79,6 +79,7 @@ class VitalsThresholdResponse(BaseModel):
         from_attributes = True
 
 class VitalReadingCreate(BaseModel):
+    patient_id: Optional[str] = None
     vital_type: str
     value: Optional[float] = None
     secondary_value: Optional[float] = None

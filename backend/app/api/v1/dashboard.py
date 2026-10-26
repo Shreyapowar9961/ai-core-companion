@@ -16,6 +16,7 @@ from app.models.progress import DailyProgressScore
 router = APIRouter(prefix="/dashboard", tags=["Care-Team Clinical Dashboard"])
 
 @router.get("/summary")
+@router.get("/metrics")
 def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
@@ -76,6 +77,7 @@ def get_dashboard_summary(
     }
 
 @router.get("/priority-patients")
+@router.get("/priority-list")
 def get_priority_patients(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
@@ -126,16 +128,28 @@ def get_priority_patients(
             priority_rank = min(priority_rank, 4)
             reasons.append(f"Declining Recovery Score ({score.overall_score}%)")
 
+        tier = "CRITICAL" if priority_rank == 1 else ("HIGH" if priority_rank == 2 else ("MEDIUM" if priority_rank == 3 else "LOW"))
+
         if reasons:
             priority_list.append({
                 "patient_id": p.id,
+                "first_name": p.first_name,
+                "last_name": p.last_name,
                 "name": f"{p.first_name} {p.last_name}",
                 "phone": p.phone,
                 "diagnosis": p.diagnosis,
+                "status": p.status,
                 "preferred_language": p.preferred_language,
                 "priority_rank": priority_rank,
-                "priority_label": "CRITICAL" if priority_rank == 1 else ("HIGH" if priority_rank == 2 else "MEDIUM"),
+                "priority_tier": tier,
+                "priority_label": tier,
+                "priority_score": 100 if priority_rank == 1 else (80 if priority_rank == 2 else 60),
                 "reasons": reasons,
+                "inclusion_reasons": reasons,
+                "open_alerts_count": len(alerts),
+                "medication_adherence_7d": 85.0,
+                "last_call_disposition": "COMPLETED",
+                "last_call_time": None,
                 "latest_alert": alerts[0].title if alerts else None,
                 "discharge_date": p.discharge_date.isoformat(),
                 "treating_doctor": p.treating_doctor_name

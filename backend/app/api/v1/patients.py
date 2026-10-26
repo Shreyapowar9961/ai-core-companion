@@ -283,6 +283,7 @@ def complete_patient_programme(
     return {"message": "Programme completed. All scheduled calls stopped.", "status": "COMPLETED"}
 
 @router.post("/{patient_id}/consent/withdraw")
+@router.post("/{patient_id}/withdraw-consent")
 def withdraw_consent(
     patient_id: str,
     req: ConsentWithdrawRequest,

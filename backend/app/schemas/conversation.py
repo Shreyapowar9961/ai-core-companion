@@ -52,11 +52,13 @@ class StartCallRequest(BaseModel):
     call_type: str = "MORNING_CHECKIN" # MORNING_CHECKIN, EVENING_CHECKIN, MEDICATION_REMINDER, APPOINTMENT_REMINDER
     direction: str = "OUTBOUND"
     language: Optional[str] = None # mr, hi, en (falls back to patient.preferred_language)
+    initial_language: Optional[str] = None
     caller_phone: Optional[str] = None
 
 class ProcessTurnRequest(BaseModel):
     session_id: str
-    user_speech_text: str # Transcript from STT or live web simulator input
+    user_speech_text: Optional[str] = None # Transcript from STT or live web simulator input
+    user_speech: Optional[str] = None # Alias for web simulator
     audio_data_base64: Optional[str] = None # Optional voice audio chunk
 
 class ProcessTurnResponse(BaseModel):
