@@ -6,14 +6,18 @@ import {
   Users,
   UserPlus,
   AlertTriangle,
+  PhoneCall,
   BookOpen,
   Sliders,
-  History
+  History,
+  ShieldAlert
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const { currentUser } = useAuth();
   if (!currentUser) return null;
+
+  const isAdmin = currentUser.role === 'ADMIN';
 
   const navItems = [
     {
@@ -67,7 +71,7 @@ export const Sidebar: React.FC = () => {
       <div className="space-y-6">
         <div>
           <p className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Clinical Workstation
+            Main Navigation
           </p>
           <nav className="space-y-1">
             {visibleItems.map((item) => {
@@ -78,7 +82,7 @@ export const Sidebar: React.FC = () => {
                   to={item.to}
                   end={item.to === '/'}
                   className={({ isActive }) =>
-                    `flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
+                    `flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                       isActive
                         ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -92,17 +96,23 @@ export const Sidebar: React.FC = () => {
             })}
           </nav>
         </div>
-<<<<<<< HEAD
 
-       
-=======
->>>>>>> 6894dd2cd72d5de6d81a42569a827eabd45d73ca
+        {/* Clinical Guardrail Indicator */}
+        <div className="p-3 bg-slate-800/80 rounded-xl border border-slate-700/60">
+          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-semibold mb-1">
+            <ShieldAlert className="w-4 h-4" />
+            <span>Clinical Protocols Active</span>
+          </div>
+          <p className="text-[11px] text-slate-400 leading-relaxed">
+            Deterministic physician-configured thresholds active with immediate 15-minute emergency escalation.
+          </p>
+        </div>
       </div>
 
       {/* Facility Footer */}
       <div className="pt-4 border-t border-slate-800 text-xs text-slate-400">
         <p className="font-semibold text-slate-300">Apex Heart & Recovery</p>
-        <p className="text-[10px] text-slate-500">Hospital Cardiology Network</p>
+        <p className="text-[10px] text-slate-400">Cardiology & Post-Op Recovery</p>
       </div>
     </aside>
   );

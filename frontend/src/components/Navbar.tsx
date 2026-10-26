@@ -19,19 +19,19 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator }) => {
         
         {/* Brand / Logo */}
         <div className="flex items-center space-x-3">
-          <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-xs flex items-center justify-center">
-            <HeartPulse className="w-5 h-5" />
+          <div className="bg-indigo-600 text-white p-2 rounded-xl shadow-sm flex items-center justify-center">
+            <HeartPulse className="w-6 h-6 animate-pulse" />
           </div>
           <div>
-<<<<<<< HEAD
-           
+            <div className="flex items-center space-x-2">
+              <span className="font-bold text-lg text-slate-900 tracking-tight">AI Care Companion</span>
+              <span className="bg-emerald-50 text-emerald-700 text-[10px] font-semibold px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                Hospital Network Active
+              </span>
+            </div>
             <p className="text-xs text-slate-500 font-medium hidden sm:block">
               Apex Heart & Recovery Institute · Multi-Facility Recovery Engine
-=======
-            <span className="font-bold text-base text-slate-900 tracking-tight">AI Care Companion</span>
-            <p className="text-[11px] text-slate-500 font-medium hidden sm:block">
-              Apex Heart & Recovery Institute · Post-Discharge Monitoring
->>>>>>> 6894dd2cd72d5de6d81a42569a827eabd45d73ca
             </p>
           </div>
         </div>
@@ -42,7 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator }) => {
           {/* Quick Call Simulator Launch */}
           <button
             onClick={onOpenCallSimulator}
-            className="hidden md:inline-flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2 rounded-xl transition-colors shadow-xs"
+            className="hidden md:inline-flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-lg transition-colors shadow-xs"
           >
             <PhoneCall className="w-3.5 h-3.5" />
             <span>Simulate Voice Call</span>
