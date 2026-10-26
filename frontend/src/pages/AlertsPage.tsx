@@ -8,7 +8,6 @@ import {
   Clock,
   CheckCircle2,
   Filter,
-  UserCheck,
   Search,
   ShieldAlert,
   ArrowRight
@@ -17,290 +16,224 @@ import {
 export const AlertsPage: React.FC = () => {
   const { token, currentUser } = useAuth();
 
-  const [alerts, setAlerts] = useState<Alert[]>([
-    {
-      id: 'alert-demo-1',
-      patient_id: 'patient-demo-1',
-      rule_code: 'RULE_VITALS_SPO2_CRITICAL',
-      severity: 'CRITICAL',
-      title: 'Critical Low SpO2 Breach (<88%)',
-      description: 'Pulse oximeter reading 86% recorded during morning check-in. Below critical 88% threshold.',
-      status: 'OPEN',
-      sla_due_at: new Date(Date.now() + 15 * 60000).toISOString(),
-      created_at: new Date().toISOString()
-    },
-    {
-      id: 'alert-demo-2',
-      patient_id: 'patient-demo-1',
-      rule_code: 'RULE_SYMPTOM_ACUTE_PAIN',
-      severity: 'CRITICAL',
-      title: 'Severe Acute Post-Surgical Pain (8/10)',
-      description: 'Patient reported acute sternal pain score 8/10. Emergency script delivered verbatim.',
-      status: 'ACKNOWLEDGED',
-      sla_due_at: new Date(Date.now() + 5 * 60000).toISOString(),
-      acknowledged_at: new Date().toISOString(),
-      acknowledged_by: 'Dr. Neha Kulkarni (CLINICIAN)',
-      created_at: new Date(Date.now() - 10 * 60000).toISOString()
-    },
-    {
-      id: 'alert-demo-3',
-      patient_id: 'patient-demo-2',
-      rule_code: 'RULE_SYMPTOM_SUSTAINED_WORSENING_BREATHLESSNESS',
-      severity: 'HIGH',
-      title: 'Sustained Deteriorating Breathlessness Trend',
-      description: 'Patient breathlessness reported worse across 2 consecutive morning check-ins.',
-      status: 'OPEN',
-      sla_due_at: new Date(Date.now() + 45 * 60000).toISOString(),
-      created_at: new Date(Date.now() - 15 * 60000).toISOString()
-    },
-    {
-      id: 'alert-demo-4',
-      patient_id: 'patient-demo-2',
-      rule_code: 'RULE_MED_REPEATED_MISS',
-      severity: 'HIGH',
-      title: 'Repeated Medication Miss: Amlodipine 5mg',
-      description: 'Patient missed 2 consecutive scheduled doses. Stated reason: nausea.',
-      status: 'RESOLVED',
-      sla_due_at: new Date(Date.now() - 60 * 60000).toISOString(),
-      acknowledged_at: new Date(Date.now() - 50 * 60000).toISOString(),
-      acknowledged_by: 'Dr. Neha Kulkarni (CLINICIAN)',
-      resolved_at: new Date(Date.now() - 30 * 60000).toISOString(),
-      resolved_by: 'Dr. Neha Kulkarni (CLINICIAN)',
-      resolution_action_notes: 'Care team contacted patient. Advised taking medication after meals to prevent nausea. Next dose confirmed.',
-      created_at: new Date(Date.now() - 120 * 60000).toISOString()
-    }
-  ]);
-
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
   const [selectedAlertForResolve, setSelectedAlertForResolve] = useState<Alert | null>(null);
   const [resolutionNotes, setResolutionNotes] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
+  const fetchAlerts = () => {
+    if (!token) return;
+    setIsLoading(true);
     apiClient.getAlerts(token)
       .then((data) => {
-        if (data && data.length > 0) setAlerts(data);
+        setAlerts(data || []);
       })
-      .catch((err) => console.log('Using default alerts fallback:', err.message));
+      .catch((err) => {
+        console.error('Failed to fetch alerts:', err.message);
+        setAlerts([]);
+      })
+      .finally(() => setIsLoading(false));
+  };
+
+  useEffect(() => {
+    fetchAlerts();
   }, [token]);
 
   const handleAcknowledge = async (alertId: string) => {
     try {
-      const res = await apiClient.acknowledgeAlert(token, alertId, `Acknowledged by ${currentUser?.name || 'Staff'}`);
-      setAlerts((prev) => prev.map((a) => (a.id === alertId ? res : a)));
+      await apiClient.acknowledgeAlert(token, alertId, `Acknowledged by ${currentUser?.name || 'Staff'}`);
+      fetchAlerts();
     } catch (err: any) {
-      // Local optimistic update
-      setAlerts((prev) =>
-        prev.map((a) =>
-          a.id === alertId
-            ? {
-                ...a,
-                status: 'ACKNOWLEDGED',
-                acknowledged_at: new Date().toISOString(),
-                acknowledged_by: `${currentUser?.name || 'Staff'} (${currentUser?.role || 'CLINICIAN'})`
-              }
-            : a
-        )
-      );
+      console.error('Acknowledge failed:', err.message);
     }
   };
 
   const handleResolve = async () => {
     if (!selectedAlertForResolve || !resolutionNotes.trim()) return;
 
+    setIsSubmitting(true);
     try {
-      const res = await apiClient.resolveAlert(token, selectedAlertForResolve.id, resolutionNotes);
-      setAlerts((prev) => prev.map((a) => (a.id === selectedAlertForResolve.id ? res : a)));
-    } catch (err: any) {
-      // Local optimistic update
-      setAlerts((prev) =>
-        prev.map((a) =>
-          a.id === selectedAlertForResolve.id
-            ? {
-                ...a,
-                status: 'RESOLVED',
-                resolved_at: new Date().toISOString(),
-                resolved_by: `${currentUser?.name || 'Staff'} (${currentUser?.role || 'CLINICIAN'})`,
-                resolution_action_notes: resolutionNotes
-              }
-            : a
-        )
-      );
-    } finally {
+      await apiClient.resolveAlert(token, selectedAlertForResolve.id, resolutionNotes);
       setSelectedAlertForResolve(null);
       setResolutionNotes('');
+      fetchAlerts();
+    } catch (err: any) {
+      console.error('Resolution failed:', err.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const filteredAlerts = alerts.filter((a) => filterStatus === 'ALL' || a.status === filterStatus);
+  const filteredAlerts = alerts.filter((a) => {
+    if (filterStatus === 'ALL') return true;
+    return a.status === filterStatus;
+  });
+
+  const formatSlaRemaining = (dueAtStr: string) => {
+    const diff = new Date(dueAtStr).getTime() - Date.now();
+    if (diff <= 0) return 'SLA Expired';
+    const mins = Math.floor(diff / 60000);
+    const secs = Math.floor((diff % 60000) / 1000);
+    return `${mins}m ${secs}s`;
+  };
 
   return (
     <div className="space-y-6">
       
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center space-x-2">
-            <AlertTriangle className="w-6 h-6 text-rose-600" />
-            <span>Clinical Escalation & SLA Triage Queue (ES-01 to ES-08)</span>
-          </h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Deterministic rules-driven clinical alerts with enforced acknowledgment and resolution SLAs (Critical: 15m, High: 1h, Medium: 4h).
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clinical Alerts & Triage SLA</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Deterministic rules-based escalation queue with enforced clinical response SLA timers.
           </p>
         </div>
-
-        {/* Status Filters */}
-        <div className="flex items-center space-x-2 bg-white p-1 rounded-xl border border-slate-200 text-xs shadow-xs">
-          {['ALL', 'OPEN', 'ACKNOWLEDGED', 'RESOLVED'].map((s) => (
+        
+        {/* Status Filter */}
+        <div className="flex items-center space-x-2">
+          {(['ALL', 'OPEN', 'ACKNOWLEDGED', 'RESOLVED'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setFilterStatus(s)}
-              className={`px-3 py-1.5 rounded-lg font-semibold transition-colors ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                 filterStatus === s
                   ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {s}
+              {s === 'ALL' ? 'All Alerts' : s}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Alert Cards */}
-      <div className="space-y-3">
-        {filteredAlerts.length === 0 ? (
-          <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center text-slate-400">
-            <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-            <p className="font-semibold text-slate-700">No alerts matching filter</p>
-            <p className="text-xs">All clinical escalations in this category have been acknowledged or resolved.</p>
+      {/* Real-Time Alerts List */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        {isLoading ? (
+          <div className="p-12 text-center text-slate-400 text-xs flex items-center justify-center gap-2">
+            <div className="w-4 h-4 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <span>Fetching real-time clinical alerts...</span>
+          </div>
+        ) : filteredAlerts.length === 0 ? (
+          <div className="p-12 text-center text-slate-500 text-xs">
+            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
+            <p className="font-semibold text-slate-700 text-sm">No Alerts Found</p>
+            <p className="mt-1 text-slate-400">There are no clinical alerts matching the selected status.</p>
           </div>
         ) : (
-          filteredAlerts.map((alert) => (
-            <div
-              key={alert.id}
-              className={`bg-white rounded-2xl p-5 border transition-all shadow-xs ${
-                alert.status === 'OPEN' && alert.severity === 'CRITICAL'
-                  ? 'border-rose-300 ring-2 ring-rose-100 bg-rose-50/20'
-                  : alert.status === 'OPEN'
-                  ? 'border-amber-200'
-                  : 'border-slate-200'
-              }`}
-            >
-              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="divide-y divide-slate-100">
+            {filteredAlerts.map((alert) => (
+              <div key={alert.id} className="p-5 hover:bg-slate-50/70 transition-colors flex flex-col lg:flex-row lg:items-center justify-between gap-4">
                 
-                {/* Details */}
-                <div className="space-y-1.5 max-w-3xl">
-                  <div className="flex flex-wrap items-center gap-2">
+                <div className="space-y-2 max-w-2xl">
+                  <div className="flex items-center gap-2">
                     <StatusBadge status={alert.severity} size="sm" />
-                    <StatusBadge status={alert.status} size="sm" />
-                    <h3 className="font-bold text-sm text-slate-900">{alert.title}</h3>
-                  </div>
-
-                  <p className="text-xs text-slate-700 leading-relaxed">{alert.description}</p>
-
-                  <div className="flex flex-wrap items-center gap-4 text-[11px] text-slate-500 pt-1">
-                    <span>Patient ID: <strong className="text-slate-700 font-mono">{alert.patient_id}</strong></span>
-                    <span>Created: {new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                    
-                    {/* SLA Timer */}
-                    <span className={`font-semibold flex items-center ${
-                      alert.status === 'OPEN' ? 'text-rose-600' : 'text-slate-500'
-                    }`}>
-                      <Clock className="w-3.5 h-3.5 mr-1" />
-                      SLA Due: {new Date(alert.sla_due_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    <span className="font-bold text-sm text-slate-900">{alert.title}</span>
+                    <span className="text-xs text-slate-400 font-mono">({alert.patient_id})</span>
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded bg-slate-100 text-slate-600">
+                      {alert.rule_code}
                     </span>
-
-                    {alert.acknowledged_by && (
-                      <span className="text-indigo-600 font-medium">
-                        Ack: {alert.acknowledged_by}
-                      </span>
-                    )}
-
-                    {alert.resolved_by && (
-                      <span className="text-emerald-700 font-medium">
-                        Resolved by: {alert.resolved_by}
-                      </span>
-                    )}
                   </div>
+                  <p className="text-xs text-slate-600">{alert.description}</p>
 
-                  {/* Resolution Notes */}
-                  {alert.resolution_action_notes && (
-                    <div className="mt-2 p-3 bg-emerald-50 rounded-xl border border-emerald-200 text-xs text-emerald-900">
-                      <strong>Clinical Resolution Action:</strong> {alert.resolution_action_notes}
+                  {/* Resolution Notes if Resolved */}
+                  {alert.status === 'RESOLVED' && alert.resolution_action_notes && (
+                    <div className="p-2.5 rounded-lg bg-emerald-50/80 border border-emerald-200 text-xs text-emerald-900 space-y-0.5">
+                      <p className="font-semibold text-[11px] text-emerald-800">
+                        Resolved by {alert.resolved_by || 'Clinician'}:
+                      </p>
+                      <p>{alert.resolution_action_notes}</p>
                     </div>
                   )}
                 </div>
 
-                {/* Actions */}
-                <div className="flex items-center space-x-2 shrink-0">
+                {/* Status & Actions */}
+                <div className="flex items-center gap-4 shrink-0">
+                  {alert.status === 'OPEN' && (
+                    <div className="flex items-center gap-1 text-xs font-mono font-semibold text-rose-600 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-200">
+                      <Clock className="w-3.5 h-3.5" />
+                      <span>{formatSlaRemaining(alert.sla_due_at)}</span>
+                    </div>
+                  )}
+
                   {alert.status === 'OPEN' && (
                     <button
                       onClick={() => handleAcknowledge(alert.id)}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors shadow-xs"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors border border-slate-200"
                     >
-                      Acknowledge SLA
+                      Acknowledge
                     </button>
                   )}
 
                   {alert.status !== 'RESOLVED' && (
                     <button
                       onClick={() => setSelectedAlertForResolve(alert)}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-colors shadow-xs"
+                      className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition-colors shadow-xs"
                     >
-                      Resolve with Notes (DB-04)
+                      Resolve Alert
                     </button>
+                  )}
+
+                  {alert.status === 'RESOLVED' && (
+                    <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Resolved</span>
+                    </span>
                   )}
                 </div>
 
               </div>
-            </div>
-          ))
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Resolution Notes Modal (DB-04 & ES-07 Mandate) */}
+      {/* Resolve Modal (ES-07 Mandatory Clinician Notes) */}
       {selectedAlertForResolve && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-lg w-full space-y-4 shadow-xl border border-slate-200">
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div>
-              <h3 className="font-bold text-base text-slate-900">Resolve Clinical Alert (ES-07, DB-04)</h3>
+              <h3 className="text-base font-bold text-slate-900">Resolve Clinical Alert</h3>
               <p className="text-xs text-slate-500 mt-1">
-                Mandatory clinical audit requirement: Explicit clinical action notes and named clinician identity must be recorded before an alert can be closed.
+                BRD requirement ES-07 mandates documenting clinical action notes prior to alert resolution.
               </p>
             </div>
 
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs">
-              <p className="font-bold text-slate-800">{selectedAlertForResolve.title}</p>
-              <p className="text-slate-600 mt-0.5">{selectedAlertForResolve.description}</p>
+              <p className="font-semibold text-slate-800">{selectedAlertForResolve.title}</p>
+              <p className="text-slate-500 mt-0.5">{selectedAlertForResolve.description}</p>
             </div>
 
             <div>
-              <label className="font-semibold text-xs text-slate-700 block mb-1">
-                Clinical Resolution & Management Notes *
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Clinical Action Notes *
               </label>
               <textarea
-                rows={4}
-                required
-                placeholder="e.g. Contacted patient via phone. Advised rest, hydration, and took follow-up SpO2 reading of 97%. Cardiologist Dr. Kulkarni notified."
                 value={resolutionNotes}
                 onChange={(e) => setResolutionNotes(e.target.value)}
-                className="w-full border border-slate-300 rounded-xl p-3 text-xs focus:ring-2 focus:ring-indigo-500"
+                placeholder="Document action taken (e.g., Contacted patient, adjusted diuretic dosage, advised clinic visit)..."
+                rows={3}
+                className="w-full p-2.5 text-xs rounded-xl border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
-            <div className="flex justify-end space-x-2 pt-2">
+            <div className="flex justify-end gap-2 pt-2">
               <button
+                type="button"
                 onClick={() => setSelectedAlertForResolve(null)}
-                className="px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition-colors"
               >
                 Cancel
               </button>
               <button
+                type="button"
+                disabled={!resolutionNotes.trim() || isSubmitting}
                 onClick={handleResolve}
-                disabled={!resolutionNotes.trim()}
-                className="bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 text-white rounded-xl text-xs font-semibold px-5 py-2 shadow-xs"
+                className="px-4 py-2 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white transition-colors disabled:bg-slate-300"
               >
-                Confirm Resolution
+                {isSubmitting ? 'Resolving...' : 'Confirm Resolution'}
               </button>
             </div>
           </div>

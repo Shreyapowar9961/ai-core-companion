@@ -24,13 +24,35 @@ interface CallSimulatorModalProps {
 export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
   isOpen,
   onClose,
-  defaultPatientId = 'patient-demo-1'
+  defaultPatientId = 'patient-apex-101'
 }) => {
   const { token } = useAuth();
   const [patientId, setPatientId] = useState(defaultPatientId);
   const [callType, setCallType] = useState('MORNING_CHECKIN');
   const [language, setLanguage] = useState<'en' | 'hi' | 'mr'>('en');
   const [speechSynthesisEnabled, setSpeechSynthesisEnabled] = useState(true);
+  const [patients, setPatients] = useState<Array<{ id: string; name: string; diagnosis: string; lang: 'en' | 'hi' | 'mr' }>>([]);
+
+  useEffect(() => {
+    if (!isOpen || !token) return;
+    apiClient.getPatients(token)
+      .then((data) => {
+        if (data && data.length > 0) {
+          const mapped = data.map((p) => ({
+            id: p.id,
+            name: `${p.first_name} ${p.last_name}`,
+            diagnosis: p.diagnosis,
+            lang: (p.preferred_language || 'en') as 'en' | 'hi' | 'mr'
+          }));
+          setPatients(mapped);
+          if (!defaultPatientId || defaultPatientId === 'patient-apex-101') {
+            setPatientId(mapped[0].id);
+            setLanguage(mapped[0].lang);
+          }
+        }
+      })
+      .catch((err) => console.warn('Could not fetch patients for call simulator:', err.message));
+  }, [isOpen, token, defaultPatientId]);
 
   // Call State
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -126,18 +148,10 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
         }
       ]);
     } catch (err: any) {
-      // Fallback demo session if offline
-      const mockSessionId = 'sim-call-' + Date.now();
-      setSessionId(mockSessionId);
-      setStepKey('IDENTITY_CHECK');
-      const mockPrompt = language === 'mr'
-        ? 'Namaskar Ramesh ji, me Apex Hospital madhun AI Care Companion boltoy. Tumi bolat ahat ka?'
-        : language === 'hi'
-        ? 'Namaste Ramesh ji, main Apex Care se bol raha hu. Kya aap Ramesh ji baat kar rahe hain?'
-        : 'Hello Ramesh Patil, this is your AI Care Companion from Apex Heart Institute. Am I speaking with Ramesh?';
-      setAgentPrompt(mockPrompt);
+      console.error('Call initialization failed:', err.message);
+      setAgentPrompt(`Connection failed: ${err.message || 'Unable to start call session'}`);
       setTurnsHistory([
-        { agent: mockPrompt, step: 'IDENTITY_CHECK', timestamp: new Date().toLocaleTimeString() }
+        { agent: `Connection failed: ${err.message || 'Unable to connect to hospital telephony service.'}`, step: 'ERROR', timestamp: new Date().toLocaleTimeString() }
       ]);
     } finally {
       setIsCalling(false);
@@ -190,63 +204,11 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
         return copy;
       });
     } catch (err: any) {
-      // Smart offline fallback state progression
-      let nextStep = 'WELLBEING';
-      let nextPrompt = 'Thank you. How are you feeling overall this morning?';
-
-      if (curStep === 'IDENTITY_CHECK') {
-        nextStep = 'WELLBEING';
-        nextPrompt = 'Glad to connect. How are you feeling overall since discharge? Any chest discomfort or issues?';
-      } else if (curStep === 'WELLBEING') {
-        nextStep = 'SYMPTOMS_PAIN';
-        nextPrompt = 'On a scale from 0 to 10, where 0 is no pain and 10 is severe, how would you rate your pain right now?';
-      } else if (curStep === 'SYMPTOMS_PAIN') {
-        if (speechText.includes('9') || speechText.includes('severe')) {
-          setAlertsTriggered((prev) => [
-            ...prev,
-            { severity: 'CRITICAL', title: 'Severe Acute Pain (>8/10)', reason: speechText }
-          ]);
-          nextPrompt = 'You are reporting severe pain. Please sit down immediately. I am alerting your cardiologist and caregiver right now.';
-          setIsCompleted(true);
-        } else {
-          nextStep = 'SYMPTOMS_BREATHLESSNESS';
-          nextPrompt = 'Have you had any shortness of breath today? Is it better, unchanged, or worse than yesterday?';
-        }
-      } else if (curStep === 'SYMPTOMS_BREATHLESSNESS') {
-        nextStep = 'VITALS_SPO2';
-        nextPrompt = 'If you have your pulse oximeter nearby, please measure your oxygen saturation SpO2 and tell me the number.';
-      } else if (curStep === 'VITALS_SPO2') {
-        if (speechText.includes('86') || speechText.includes('88')) {
-          setAlertsTriggered((prev) => [
-            ...prev,
-            { severity: 'CRITICAL', title: 'Critical SpO2 Breach (<88%)', reason: speechText }
-          ]);
-        }
-        nextStep = 'VITALS_BP';
-        nextPrompt = 'I have noted your oxygen reading. Now please tell me your blood pressure reading if measured today.';
-      } else if (curStep === 'VITALS_BP') {
-        nextStep = 'MEDICATION';
-        nextPrompt = 'Have you taken your morning dose of Atorvastatin 20mg?';
-      } else if (curStep === 'MEDICATION') {
-        if (speechText.toLowerCase().includes('double') || speechText.toLowerCase().includes('dose')) {
-          nextPrompt = 'I cannot advise on changing medication doses. I have queued a call back from Dr. Sharma to review your prescription safely.';
-        } else {
-          nextStep = 'LIFESTYLE_HYDRATION';
-          nextPrompt = 'Understood. Have you been drinking plenty of water today? How many glasses?';
-        }
-      } else {
-        nextPrompt = 'Thank you for completing your daily recovery check-in. Your care team has received your updates. Rest well!';
-        setIsCompleted(true);
-      }
-
-      setStepKey(nextStep);
-      setAgentPrompt(nextPrompt);
-      setTurnsHistory((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last) last.agent = nextPrompt;
-        return copy;
-      });
+      console.error('Turn processing failed:', err.message);
+      setTurnsHistory((prev) => [
+        ...prev,
+        { agent: `[Error: ${err.message || 'Speech processing failed'}]`, step: curStep, timestamp: new Date().toLocaleTimeString() }
+      ]);
     }
   };
 
@@ -324,12 +286,24 @@ export const CallSimulatorModal: React.FC<CallSimulatorModalProps> = ({
               <span className="text-slate-500 font-medium">Patient:</span>
               <select
                 value={patientId}
-                onChange={(e) => setPatientId(e.target.value)}
+                onChange={(e) => {
+                  const selId = e.target.value;
+                  setPatientId(selId);
+                  const p = patients.find(item => item.id === selId);
+                  if (p) setLanguage(p.lang);
+                }}
                 disabled={sessionId !== null && !isCompleted}
                 className="bg-white border border-slate-300 rounded-md px-2 py-1 font-medium text-slate-800 focus:ring-1 focus:ring-indigo-500"
               >
-                <option value="patient-demo-1">Ramesh Patil (Post-CABG, Marathi/English)</option>
-                <option value="patient-demo-2">Sunita Deshmukh (Post-Angioplasty, Hindi)</option>
+                {patients.length > 0 ? (
+                  patients.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.diagnosis})
+                    </option>
+                  ))
+                ) : (
+                  <option value={patientId}>{patientId}</option>
+                )}
               </select>
             </div>
 

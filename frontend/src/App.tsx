@@ -27,12 +27,12 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; onOpenCallSimulator
   if (isLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-6 text-white font-sans">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 shadow-xl text-white mb-4 animate-pulse">
+        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-indigo-600 shadow-xl text-white mb-4">
           <HeartPulse className="w-8 h-8" />
         </div>
         <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin mb-3" />
         <p className="text-sm font-semibold text-slate-200">Verifying Clinical Authorization...</p>
-        <p className="text-xs text-slate-400 mt-1">Apex Heart & Recovery Institute · DB-05 RBAC</p>
+        <p className="text-xs text-slate-400 mt-1">Apex Heart & Recovery Institute · Clinical Access Control</p>
       </div>
     );
   }

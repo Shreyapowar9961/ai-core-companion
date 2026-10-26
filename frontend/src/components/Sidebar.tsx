@@ -6,18 +6,14 @@ import {
   Users,
   UserPlus,
   AlertTriangle,
-  PhoneCall,
   BookOpen,
   Sliders,
-  History,
-  ShieldAlert
+  History
 } from 'lucide-react';
 
 export const Sidebar: React.FC = () => {
   const { currentUser } = useAuth();
   if (!currentUser) return null;
-
-  const isAdmin = currentUser.role === 'ADMIN';
 
   const navItems = [
     {
@@ -71,7 +67,7 @@ export const Sidebar: React.FC = () => {
       <div className="space-y-6">
         <div>
           <p className="px-3 text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
-            Main Navigation
+            Clinical Workstation
           </p>
           <nav className="space-y-1">
             {visibleItems.map((item) => {
@@ -82,7 +78,7 @@ export const Sidebar: React.FC = () => {
                   to={item.to}
                   end={item.to === '/'}
                   className={({ isActive }) =>
-                    `flex items-center space-x-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    `flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-colors ${
                       isActive
                         ? 'bg-indigo-600 text-white shadow-xs'
                         : 'text-slate-300 hover:bg-slate-800 hover:text-white'
@@ -96,14 +92,17 @@ export const Sidebar: React.FC = () => {
             })}
           </nav>
         </div>
+<<<<<<< HEAD
 
        
+=======
+>>>>>>> 6894dd2cd72d5de6d81a42569a827eabd45d73ca
       </div>
 
       {/* Facility Footer */}
       <div className="pt-4 border-t border-slate-800 text-xs text-slate-400">
         <p className="font-semibold text-slate-300">Apex Heart & Recovery</p>
-        <p className="text-[10px] text-slate-400">Cardiology & Post-Op Recovery</p>
+        <p className="text-[10px] text-slate-500">Hospital Cardiology Network</p>
       </div>
     </aside>
   );
