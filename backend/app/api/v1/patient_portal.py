@@ -11,6 +11,7 @@ from app.core.audit import log_audit_event
 from app.models.patient import Patient, CarePlan, Caregiver
 from app.models.clinical import MedicationSchedule, MedicationLog, SymptomCheckin, VitalReading
 from app.models.monitoring import MonitoringPlan, CheckinTask, CommunicationLog, PatientFeedback
+from app.models.prescription import PrescriptionUpload
 from app.models.rules_alert import Alert
 from app.models.progress import DailyProgressScore
 from app.services.rules_engine import RulesEngine
@@ -502,6 +503,34 @@ def get_medication_schedule(
         })
 
     return result
+
+@router.get("/prescriptions")
+def get_patient_prescriptions(
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    """
+    Returns official uploaded prescriptions and doctor verification status for the logged-in patient.
+    """
+    patient_id = get_verified_patient_id(current_user, db)
+    prescriptions = db.execute(
+        select(PrescriptionUpload).where(PrescriptionUpload.patient_id == patient_id)
+        .order_by(desc(PrescriptionUpload.created_at))
+    ).scalars().all()
+
+    return [
+        {
+            "id": p.id,
+            "filename": p.filename,
+            "status": p.status,
+            "verified_by": p.verified_by,
+            "verified_at": p.verified_at.isoformat() if p.verified_at else None,
+            "created_at": p.created_at.isoformat(),
+            "medications": p.verified_medications or p.raw_ocr_parsed or [],
+            "clinician_notes": p.clinician_notes
+        }
+        for p in prescriptions
+    ]
 
 @router.get("/medications/history")
 def get_medication_history(

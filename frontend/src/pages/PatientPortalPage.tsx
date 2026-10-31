@@ -4,7 +4,8 @@ import { apiClient } from '../api/client';
 import {
   HeartPulse, Pill, Calendar, Bell, MessageSquare, CheckCircle2,
   AlertCircle, Phone, Clock, FileText, Star, Activity, Sparkles,
-  ShieldCheck, LogOut, ChevronRight, Droplets, Footprints, AlertTriangle
+  ShieldCheck, LogOut, ChevronRight, Droplets, Footprints, AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { translations, Language } from '../utils/translations';
 import {
@@ -23,6 +24,7 @@ export const PatientPortalPage: React.FC = () => {
   const [notifications, setNotifications] = useState<CommunicationLog[]>([]);
   const [communications, setCommunications] = useState<CommunicationLog[]>([]);
   const [feedbacks, setFeedbacks] = useState<PatientFeedback[]>([]);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -61,14 +63,15 @@ export const PatientPortalPage: React.FC = () => {
     setIsLoading(true);
     setActionError(null);
     try {
-      const [sumData, medsData, historyData, checkinsData, notifData, commsData, fbData] = await Promise.all([
+      const [sumData, medsData, historyData, checkinsData, notifData, commsData, fbData, prescrData] = await Promise.all([
         apiClient.getPortalDashboard(token).catch(() => null),
         apiClient.getPortalMedicationsSchedule(token).catch(() => []),
         apiClient.getPortalMedicationsHistory(token).catch(() => []),
         apiClient.getPortalCheckinsUpcoming(token).catch(() => []),
         apiClient.getPortalNotifications(token).catch(() => []),
         apiClient.getPortalCommunications(token).catch(() => []),
-        apiClient.getPortalFeedback(token).catch(() => [])
+        apiClient.getPortalFeedback(token).catch(() => []),
+        apiClient.getPortalPrescriptions(token).catch(() => [])
       ]);
 
       if (sumData) {
@@ -83,6 +86,7 @@ export const PatientPortalPage: React.FC = () => {
       setNotifications(notifData);
       setCommunications(commsData);
       setFeedbacks(fbData);
+      setPrescriptions(prescrData || []);
     } catch (err: any) {
       setActionError(err.message || 'Failed to load recovery portal records.');
     } finally {
@@ -634,6 +638,46 @@ export const PatientPortalPage: React.FC = () => {
                 <p className="text-xs text-slate-500 mt-0.5">Approved discharge prescriptions and dose confirmation tracking</p>
               </div>
             </div>
+
+            {/* Official Uploaded Prescription Documents */}
+            {prescriptions.length > 0 && (
+              <div className="bg-gradient-to-r from-indigo-50/70 via-slate-50 to-emerald-50/50 border border-indigo-100 rounded-2xl p-5 shadow-xs">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <h3 className="text-sm font-bold text-slate-900">Hospital Discharge Prescription Documents</h3>
+                  </div>
+                  <span className="text-[11px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                    Doctor Verified
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {prescriptions.map((presc) => (
+                    <div key={presc.id} className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between gap-3">
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="font-bold text-xs text-slate-900 truncate">{presc.filename}</p>
+                        <p className="text-[11px] text-slate-500 truncate">
+                          Verified by {presc.verified_by || 'Treating Physician'}
+                        </p>
+                        {presc.verified_at && (
+                          <p className="text-[10px] text-slate-400 font-mono">
+                            {new Date(presc.verified_at).toLocaleDateString([], { dateStyle: 'medium' })}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => apiClient.downloadPrescriptionFile(token, presc.id)}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-semibold text-xs transition-colors shrink-0 flex items-center gap-1.5 border border-indigo-200"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>View Slip</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {medications.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-xs">

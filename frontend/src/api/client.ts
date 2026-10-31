@@ -255,6 +255,9 @@ export const apiClient = {
   getPortalMedicationsSchedule: (token?: string | null) =>
     fetchWithAuth<any[]>(`/portal/medications/schedule`, token),
 
+  getPortalPrescriptions: (token?: string | null) =>
+    fetchWithAuth<any[]>(`/portal/prescriptions`, token),
+
   getPortalMedicationsHistory: (token?: string | null) =>
     fetchWithAuth<any[]>(`/portal/medications/history`, token),
 
@@ -323,6 +326,16 @@ export const apiClient = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
+
+  downloadPrescriptionFile: async (token: string | null | undefined, prescriptionId: string) => {
+    const res = await fetch(`${API_BASE}/prescriptions/${prescriptionId}/file`, {
+      headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+    });
+    if (!res.ok) throw new Error('Failed to load prescription document.');
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  },
 
   // Phase 3 & 5: Monitoring & Communications
   getMonitoringPlan: (token: string | null | undefined, patientId: string) =>
