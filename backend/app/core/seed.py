@@ -84,6 +84,11 @@ def seed_initial_data(db: Session):
         existing_su = db.execute(select(UserProfile).where(UserProfile.email == su.email)).scalars().first()
         if not existing_su:
             db.add(su)
+        else:
+            existing_su.password_hash = su.password_hash
+            if su.patient_id:
+                existing_su.patient_id = su.patient_id
+            existing_su.is_active = True
     db.flush()
 
     # 2. Approved Knowledge Base Articles (KQ-01, KQ-04)
@@ -467,9 +472,7 @@ def seed_initial_data(db: Session):
             start_date=date.today() - timedelta(days=3),
             end_date=date.today() + timedelta(days=27),
             frequency="DAILY",
-            communication_channel="VOICE_CALL",
-            preferred_call_window_start="10:00",
-            preferred_call_window_end="12:00",
+            communication_channel="VOICE",
             is_active=True
         )
         db.add(plan)
