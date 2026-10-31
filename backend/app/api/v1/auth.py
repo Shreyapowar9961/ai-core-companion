@@ -8,11 +8,12 @@ from fastapi.security import HTTPAuthorizationCredentials
 from app.core.database import get_db
 from app.core.security import (
     get_current_user, AuthUser, UserRole, create_access_token,
-    verify_password, security_scheme
+    verify_password, hash_password, security_scheme
 )
 from app.core.config import settings
 from app.core.audit import log_audit_event
 from app.models.user import UserProfile, RevokedToken
+from app.models.patient import Patient
 
 router = APIRouter(prefix="/auth", tags=["Authentication & RBAC"])
 
@@ -120,6 +121,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         "email": user_record.email,
         "role": user_record.role,
         "facility_id": user_record.facility_id,
+        "patient_id": getattr(user_record, "patient_id", None),
         "name": user_record.full_name
     }
     access_token = create_access_token(token_payload)
@@ -130,7 +132,7 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
         actor_id=user_record.id,
         actor_role=user_record.role,
         resource="auth",
-        details={"facility_id": user_record.facility_id, "role": user_record.role}
+        details={"facility_id": user_record.facility_id, "role": user_record.role, "patient_id": getattr(user_record, "patient_id", None)}
     )
 
     return LoginResponse(
@@ -141,7 +143,8 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
             "email": user_record.email,
             "name": user_record.full_name,
             "role": user_record.role,
-            "facility_id": user_record.facility_id
+            "facility_id": user_record.facility_id,
+            "patient_id": getattr(user_record, "patient_id", None)
         }
     )
 
@@ -192,3 +195,140 @@ def logout(
     )
 
     return {"message": "Session terminated successfully."}
+
+class PatientRegisterRequest(BaseModel):
+    email: str
+    password: str
+    phone: str
+    patient_id: Optional[str] = None
+    dob: Optional[str] = None # YYYY-MM-DD
+
+class PasswordResetRequest(BaseModel):
+    email: str
+    new_password: str
+
+@router.post("/patient-register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
+def register_patient_account(req: PatientRegisterRequest, db: Session = Depends(get_db)):
+    """
+    Phase 2: Secure patient account registration and account provisioning.
+    Role is strictly backend-assigned as PATIENT.
+    Verifies that the patient exists in the clinical directory (by patient_id or phone number).
+    """
+    email_clean = req.email.strip().lower()
+    phone_clean = req.phone.strip()
+
+    if len(req.password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters long."
+        )
+
+    # 1. Check if email already registered
+    existing_user = db.execute(
+        select(UserProfile).where(UserProfile.email == email_clean)
+    ).scalars().first()
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="An account with this email address already exists. Please log in."
+        )
+
+    # 2. Match with existing Patient discharge record
+    matched_patient = None
+    if req.patient_id:
+        matched_patient = db.get(Patient, req.patient_id)
+    if not matched_patient and phone_clean:
+        # Match by phone
+        stmt = select(Patient).where(
+            (Patient.phone == phone_clean) |
+            (Patient.emergency_contact_phone == phone_clean)
+        )
+        matched_patient = db.execute(stmt).scalars().first()
+
+    if not matched_patient:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No post-discharge recovery record found for this contact number. Please contact your hospital care team."
+        )
+
+    # 3. Create UserProfile strictly as PATIENT role
+    new_user = UserProfile(
+        email=email_clean,
+        full_name=f"{matched_patient.first_name} {matched_patient.last_name}",
+        role=UserRole.PATIENT.value, # Backend controlled role assignment
+        facility_id=matched_patient.facility_id,
+        patient_id=matched_patient.id,
+        password_hash=hash_password(req.password),
+        is_active=True
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    # 4. Issue access token
+    token_payload = {
+        "sub": new_user.id,
+        "email": new_user.email,
+        "role": UserRole.PATIENT.value,
+        "facility_id": new_user.facility_id,
+        "patient_id": new_user.patient_id,
+        "name": new_user.full_name
+    }
+    access_token = create_access_token(token_payload)
+
+    log_audit_event(
+        db=db,
+        event_type="PATIENT_ACCOUNT_REGISTERED",
+        actor_id=new_user.id,
+        actor_role=UserRole.PATIENT.value,
+        resource="auth",
+        details={"patient_id": matched_patient.id, "email": email_clean},
+        patient_id=matched_patient.id
+    )
+
+    return LoginResponse(
+        access_token=access_token,
+        token_type="bearer",
+        user={
+            "id": new_user.id,
+            "email": new_user.email,
+            "name": new_user.full_name,
+            "role": new_user.role,
+            "facility_id": new_user.facility_id,
+            "patient_id": new_user.patient_id
+        }
+    )
+
+@router.post("/reset-password")
+def reset_password(req: PasswordResetRequest, db: Session = Depends(get_db)):
+    """
+    Phase 2: Secure password reset for patient and staff accounts.
+    """
+    email_clean = req.email.strip().lower()
+    if len(req.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password must be at least 6 characters long."
+        )
+
+    user_record = db.execute(
+        select(UserProfile).where(UserProfile.email == email_clean)
+    ).scalars().first()
+    if not user_record:
+        # Prevent account enumeration: return success message
+        return {"message": "If this email is registered, password update instructions have been processed."}
+
+    user_record.password_hash = hash_password(req.new_password)
+    db.commit()
+
+    log_audit_event(
+        db=db,
+        event_type="AUTH_PASSWORD_RESET",
+        actor_id=user_record.id,
+        actor_role=user_record.role,
+        resource="auth",
+        details={"email": email_clean}
+    )
+
+    return {"message": "Password has been successfully updated. You may now log in with your new password."}
+

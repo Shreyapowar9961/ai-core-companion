@@ -13,8 +13,9 @@ class UserProfile(Base):
     id = Column(String(64), primary_key=True, default=gen_uuid)
     email = Column(String(128), unique=True, nullable=False, index=True)
     full_name = Column(String(128), nullable=False)
-    role = Column(String(32), nullable=False, default="CLINICIAN") # CLINICIAN, ADMIN
+    role = Column(String(32), nullable=False, default="CLINICIAN") # CLINICIAN, ADMIN, PATIENT
     facility_id = Column(String(64), ForeignKey("facilities.id"), nullable=True, index=True)
+    patient_id = Column(String(64), ForeignKey("patients.id"), nullable=True, index=True)
     password_hash = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
     

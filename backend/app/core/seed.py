@@ -68,6 +68,16 @@ def seed_initial_data(db: Session):
             facility_id="facility-metropolis-2",
             password_hash=hash_password("Clinician123!"),
             is_active=True
+        ),
+        UserProfile(
+            id="user-patient-1",
+            email="patient.ramesh@apexcare.org",
+            full_name="Ramesh Patil",
+            role="PATIENT",
+            facility_id="facility-apex-1",
+            patient_id="patient-demo-1",
+            password_hash=hash_password("Patient123!"),
+            is_active=True
         )
     ]
     for su in staff_users:

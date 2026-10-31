@@ -14,6 +14,8 @@ from app.models.knowledge import KnowledgeArticle, DeclinedQueryLog
 from app.models.rules_alert import EscalationRule, Alert, AlertActionLog
 from app.models.progress import DailyProgressScore, PatientSummary
 from app.models.audit import AuditLog, ConfigAuditLog
+from app.models.monitoring import MonitoringPlan, CheckinTask, CommunicationLog, PatientFeedback
+from app.models.prescription import PrescriptionUpload
 
 __all__ = [
     "Facility",
@@ -40,5 +42,10 @@ __all__ = [
     "DailyProgressScore",
     "PatientSummary",
     "AuditLog",
-    "ConfigAuditLog"
+    "ConfigAuditLog",
+    "MonitoringPlan",
+    "CheckinTask",
+    "CommunicationLog",
+    "PatientFeedback",
+    "PrescriptionUpload"
 ]

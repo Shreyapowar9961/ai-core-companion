@@ -22,6 +22,10 @@ from app.api.v1.progress import router as progress_router
 from app.api.v1.dashboard import router as dashboard_router
 from app.api.v1.audit import router as audit_router
 from app.api.v1.telephony import router as telephony_router
+from app.api.v1.patient_portal import router as patient_portal_router
+from app.api.v1.prescriptions import router as prescriptions_router
+from app.api.v1.monitoring import router as monitoring_router
+from app.services.monitoring_scheduler import BackgroundMonitoringScheduler
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("care-companion")
@@ -40,7 +44,17 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"PostgreSQL connection note (database connection active when PostgreSQL/Supabase service reachable): {e}")
 
+    try:
+        BackgroundMonitoringScheduler.start()
+    except Exception as e:
+        logger.warning(f"Background monitoring scheduler note: {e}")
+
     yield
+
+    try:
+        BackgroundMonitoringScheduler.stop()
+    except Exception:
+        pass
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -77,6 +91,9 @@ app.include_router(progress_router, prefix=api_prefix)
 app.include_router(dashboard_router, prefix=api_prefix)
 app.include_router(audit_router, prefix=api_prefix)
 app.include_router(telephony_router, prefix=api_prefix)
+app.include_router(patient_portal_router, prefix=api_prefix)
+app.include_router(prescriptions_router, prefix=api_prefix)
+app.include_router(monitoring_router, prefix=api_prefix)
 
 @app.get("/health", tags=["Health & Status"])
 def health_check():

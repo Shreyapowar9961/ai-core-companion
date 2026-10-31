@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
-import { PriorityPatientItem, Alert } from '../types';
+import { PriorityPatientItem, Alert, DashboardMetrics } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
 import {
   AlertTriangle,
@@ -12,7 +12,12 @@ import {
   Clock,
   ShieldCheck,
   CheckCircle2,
-  Users
+  Users,
+  Activity,
+  MessageSquare,
+  Star,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 
 interface DashboardPageProps {
@@ -23,8 +28,10 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
   const { token, currentUser } = useAuth();
   const navigate = useNavigate();
 
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [priorityPatients, setPriorityPatients] = useState<PriorityPatientItem[]>([]);
   const [activeAlerts, setActiveAlerts] = useState<Alert[]>([]);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(true);
   const [isLoadingPatients, setIsLoadingPatients] = useState<boolean>(true);
   const [isLoadingAlerts, setIsLoadingAlerts] = useState<boolean>(true);
 
@@ -33,6 +40,13 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
 
   useEffect(() => {
     if (!token) return;
+
+    // 0. Fetch dashboard clinical summary metrics (Phase 6 DB-backed metrics)
+    setIsLoadingMetrics(true);
+    apiClient.getDashboardMetrics(token, currentUser?.facility_id)
+      .then((data) => setMetrics(data))
+      .catch((err) => console.error('Failed to fetch dashboard metrics:', err.message))
+      .finally(() => setIsLoadingMetrics(false));
 
     // 1. Fetch live priority patients from backend API (DB-02)
     setIsLoadingPatients(true);
@@ -86,7 +100,7 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Clinical Recovery Workstation</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Real-time patient triaging, active SLA alerts, and voice telephony check-ins.
+            Real-time patient triaging, active SLA alerts, automated background monitoring, and patient feedback.
           </p>
         </div>
         <div className="flex items-center space-x-3">
@@ -103,6 +117,75 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
           >
             + Onboard Patient
           </button>
+        </div>
+      </div>
+
+      {/* Phase 6 Key Clinical Indicators (KPI Cards calculated strictly from stored DB data) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* KPI 1: Assigned Patients */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Assigned Patients</span>
+            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+              <Users className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-slate-900 mt-2">
+            {isLoadingMetrics ? '...' : (metrics?.assigned_patient_count ?? metrics?.active_patients ?? 0)}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">In active recovery programme</p>
+        </div>
+
+        {/* KPI 2: Requiring Clinician Review */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Requiring Review</span>
+            <div className="p-2 bg-rose-50 text-rose-600 rounded-xl">
+              <AlertTriangle className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-2xl font-bold text-rose-600 mt-2">
+            {isLoadingMetrics ? '...' : (metrics?.requiring_clinician_review_count ?? activeAlerts.length)}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">Open alerts & escalated check-ins</p>
+        </div>
+
+        {/* KPI 3: Today's Check-ins */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Check-in Status</span>
+            <div className="p-2 bg-amber-50 text-amber-600 rounded-xl">
+              <Clock className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="flex items-baseline space-x-2 mt-2">
+            <span className="text-2xl font-bold text-slate-900">
+              {isLoadingMetrics ? '...' : (metrics?.upcoming_checkins_count ?? 0)}
+            </span>
+            <span className="text-xs text-slate-500 font-medium">upcoming</span>
+            {(metrics?.overdue_checkins_count ?? 0) > 0 && (
+              <span className="text-xs text-rose-600 font-bold ml-1">
+                ({metrics?.overdue_checkins_count} overdue)
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Automated scheduled cycles</p>
+        </div>
+
+        {/* KPI 4: Medication Adherence */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Med Adherence (7d)</span>
+            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+          </div>
+          <p className={`text-2xl font-bold mt-2 ${
+            (metrics?.overall_adherence_rate ?? 100) < 75 ? 'text-rose-600' : 'text-emerald-700'
+          }`}>
+            {isLoadingMetrics ? '...' : `${metrics?.overall_adherence_rate ?? 100}%`}
+          </p>
+          <p className="text-[11px] text-slate-400 mt-1">Confirmed taken vs scheduled doses</p>
         </div>
       </div>
 
@@ -297,6 +380,54 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
           </div>
         )}
 
+      </div>
+
+      {/* Phase 6: Recent Patient Feedback Section */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <MessageSquare className="w-4 h-4 text-indigo-600" />
+            <h2 className="text-sm font-bold text-slate-900">Recent Patient Experience & Recovery Feedback</h2>
+          </div>
+          <span className="text-xs text-slate-400 font-medium">Submitted via Patient Portal</span>
+        </div>
+
+        {metrics?.recent_feedback && metrics.recent_feedback.length > 0 ? (
+          <div className="divide-y divide-slate-100">
+            {metrics.recent_feedback.map((fb) => (
+              <div key={fb.id} className="p-4 hover:bg-slate-50/70 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <div className="flex items-center text-amber-500">
+                      {[...Array(5)].map((_, i) => (
+                        <Star
+                          key={i}
+                          className={`w-3.5 h-3.5 ${
+                            i < fb.rating ? 'fill-amber-400 text-amber-400' : 'text-slate-200'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded">
+                      {fb.category}
+                    </span>
+                    <span className="text-[11px] text-slate-400 font-mono">Patient: {fb.patient_id}</span>
+                  </div>
+                  <p className="text-xs text-slate-700 italic">"{fb.comments || 'No written comment provided.'}"</p>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {new Date(fb.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="p-6 text-center text-slate-400 text-xs">
+            No patient feedback submissions recorded yet. Submissions from the Patient Portal will appear here.
+          </div>
+        )}
       </div>
 
     </div>

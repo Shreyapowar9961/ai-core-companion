@@ -214,13 +214,14 @@ def get_current_user(
         email=user_record.email,
         role=trusted_role,
         facility_id=user_record.facility_id,
+        patient_id=getattr(user_record, "patient_id", None),
         name=user_record.full_name
     )
 
 def require_roles(allowed_roles: List[UserRole]):
     """
     Enforces RBAC role checks (DB-05).
-    Admin has full oversight; Clinicians must match allowed roles.
+    Admin has full oversight; Clinicians and Patients must match allowed roles.
     """
     def role_checker(current_user: AuthUser = Depends(get_current_user)) -> AuthUser:
         if current_user.role == UserRole.ADMIN:
@@ -240,11 +241,35 @@ def verify_patient_access(
     db: Optional[Session] = None
 ):
     """
-    Enforces DB-05: RBAC & Facility Multi-Tenancy authorization
-    - ADMIN: Access to all facilities
+    Enforces DB-05: RBAC, Patient Isolation & Facility Multi-Tenancy authorization
+    - ADMIN: Access to all patients and facilities
     - CLINICIAN: Access strictly restricted to assigned facility. Cross-facility access blocked.
+    - PATIENT: Access strictly restricted to their own verified patient_id. Cross-patient access (IDOR) blocked.
     """
     if current_user.role == UserRole.ADMIN:
+        return
+
+    if current_user.role == UserRole.PATIENT:
+        if not current_user.patient_id or current_user.patient_id != patient_id:
+            if db:
+                from app.core.audit import log_audit_event
+                log_audit_event(
+                    db=db,
+                    event_type="ACCESS_DENIED_IDOR_ATTEMPT",
+                    actor_id=current_user.id,
+                    actor_role=current_user.role.value,
+                    resource="patient",
+                    details={
+                        "attempted_patient_id": patient_id,
+                        "authorized_patient_id": current_user.patient_id,
+                        "action": "BLOCKED_CROSS_PATIENT_ACCESS"
+                    },
+                    patient_id=patient_id
+                )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied: Patients can access only their own medical records."
+            )
         return
 
     if current_user.role == UserRole.CLINICIAN:

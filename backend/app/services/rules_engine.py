@@ -17,6 +17,30 @@ class RulesEngine:
     rules, queuing clinical triage alerts with strict response SLA deadlines.
     """
 
+    @classmethod
+    def validate_vital_plausibility(cls, vital_type: str, value: Optional[float]) -> bool:
+        """
+        VT-02: Biological Plausibility Gating
+        """
+        if value is None:
+            return True
+        v_upper = vital_type.upper()
+        if "SPO2" in v_upper:
+            return 50.0 <= value <= 100.0
+        elif "SYSTOLIC" in v_upper:
+            return 50.0 <= value <= 260.0
+        elif "DIASTOLIC" in v_upper:
+            return 30.0 <= value <= 160.0
+        elif "GLUCOSE" in v_upper:
+            return 30.0 <= value <= 600.0
+        elif "TEMP" in v_upper:
+            return 90.0 <= value <= 110.0
+        elif "PULSE" in v_upper or "HEART" in v_upper:
+            return 30.0 <= value <= 240.0
+        elif "WEIGHT" in v_upper:
+            return 20.0 <= value <= 350.0
+        return True
+
     @staticmethod
     def get_sla_due_time(severity: str) -> datetime:
         now = datetime.utcnow()

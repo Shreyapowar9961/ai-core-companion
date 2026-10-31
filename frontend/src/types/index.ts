@@ -253,13 +253,28 @@ export interface PriorityPatientItem {
 }
 
 export interface DashboardMetrics {
-  total_active_patients: number;
-  critical_alerts_count: number;
-  high_alerts_count: number;
-  avg_medication_adherence: number;
-  calls_completed_today: number;
-  calls_scheduled_today: number;
-  active_declining_trends_count: number;
+  total_active_patients?: number;
+  active_patients?: number;
+  assigned_patient_count?: number;
+  requiring_clinician_review_count?: number;
+  upcoming_checkins_count?: number;
+  overdue_checkins_count?: number;
+  overall_adherence_rate?: number;
+  avg_medication_adherence?: number;
+  critical_alerts_count?: number;
+  high_alerts_count?: number;
+  calls_completed_today?: number;
+  calls_scheduled_today?: number;
+  active_declining_trends_count?: number;
+  recent_feedback_count?: number;
+  recent_feedback?: {
+    id: string;
+    patient_id: string;
+    rating: number;
+    category: string;
+    comments?: string;
+    created_at: string;
+  }[];
 }
 
 export interface KnowledgeArticle {
@@ -307,4 +322,109 @@ export interface PatientJourney {
   patient_id: string;
   total_events: number;
   events: AuditEvent[];
+}
+
+export interface PrescriptionUpload {
+  id: string;
+  patient_id: string;
+  filename: string;
+  file_size: number;
+  mime_type: string;
+  status: 'UPLOADED' | 'OCR_PROCESSED' | 'VERIFIED' | 'REJECTED';
+  raw_ocr_text?: string;
+  extracted_medications: Array<{
+    medicine_name: string;
+    dosage: string;
+    frequency: string;
+    dose_times: string[];
+    instructions?: string;
+    duration?: string;
+    status: string;
+    needs_review: boolean;
+  }>;
+  verified_medications?: Array<{
+    medicine_name: string;
+    dosage: string;
+    frequency: string;
+    dose_times: string[];
+    instructions?: string;
+    route?: string;
+    duration?: string;
+  }>;
+  clinician_notes?: string;
+  verified_by?: string;
+  verified_at?: string;
+  created_at: string;
+}
+
+export interface MonitoringPlan {
+  id?: string;
+  has_plan?: boolean;
+  patient_id: string;
+  start_date: string;
+  end_date: string;
+  frequency: string;
+  timezone?: string;
+  approved_questions: string[];
+  communication_channel: string;
+  is_active: boolean;
+}
+
+export interface CheckinTask {
+  id: string;
+  scheduled_for: string;
+  completed_at?: string;
+  status: 'PENDING' | 'COMPLETED' | 'MISSED' | 'EXPIRED';
+  channel: string;
+  category: 'ROUTINE' | 'FOLLOW_UP_REQUIRED' | 'NEEDS_CLINICIAN_REVIEW' | 'UNANSWERED';
+  category_reason?: string;
+  alert_id?: string;
+  response?: Record<string, any>;
+  is_due?: boolean;
+}
+
+export interface CommunicationLog {
+  id: string;
+  channel: string; // SIMULATED_VOICE, SIMULATED_WHATSAPP, SIMULATED_SMS
+  message_type: string;
+  recipient_phone?: string;
+  content: string;
+  status: 'GENERATED' | 'SENT' | 'DELIVERED' | 'VIEWED' | 'RESPONDED' | 'FAILED';
+  is_simulated: boolean;
+  sent_at: string;
+}
+
+export interface PatientFeedback {
+  id: string;
+  rating: number;
+  category: string;
+  comments?: string;
+  created_at: string;
+}
+
+export interface PatientDashboardSummary {
+  patient_name: string;
+  diagnosis: string;
+  preferred_language: 'en' | 'hi' | 'mr';
+  recovery_status: string;
+  days_since_discharge: number;
+  progress_score: number;
+  medication_summary: {
+    total: number;
+    taken: number;
+    missed: number;
+    pending: number;
+    adherence_rate: number;
+  };
+  next_checkin: {
+    id?: string;
+    scheduled_for: string;
+    channel: string;
+    is_due: boolean;
+  };
+  doctor: {
+    name: string;
+    phone: string;
+  };
+  total_notifications: number;
 }

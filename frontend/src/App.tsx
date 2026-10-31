@@ -14,6 +14,7 @@ import { CallConsolePage } from './pages/CallConsolePage';
 import { RulesConfigPage } from './pages/RulesConfigPage';
 import { KnowledgeBasePage } from './pages/KnowledgeBasePage';
 import { AuditTrailPage } from './pages/AuditTrailPage';
+import { PatientPortalPage } from './pages/PatientPortalPage';
 import { HeartPulse } from 'lucide-react';
 
 // Protected Route Guard
@@ -41,6 +42,11 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; onOpenCallSimulator
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
+  // Phase 2: Separate Patient Portal layout and route guard
+  if (currentUser.role === 'PATIENT') {
+    return <PatientPortalPage />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Top Navigation */}
@@ -61,7 +67,7 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; onOpenCallSimulator
   );
 };
 
-// Login Route Guard: If already logged in, redirect to home
+// Login Route Guard: If already logged in, redirect to home or portal
 const LoginRoute: React.FC = () => {
   const { currentUser, isLoading } = useAuth();
 
@@ -70,6 +76,9 @@ const LoginRoute: React.FC = () => {
   }
 
   if (currentUser) {
+    if (currentUser.role === 'PATIENT') {
+      return <Navigate to="/portal" replace />;
+    }
     return <Navigate to="/" replace />;
   }
 
@@ -101,6 +110,7 @@ export const App: React.FC = () => {
                   <Route path="/rules" element={<RulesConfigPage />} />
                   <Route path="/knowledge" element={<KnowledgeBasePage />} />
                   <Route path="/audit" element={<AuditTrailPage />} />
+                  <Route path="/portal" element={<PatientPortalPage />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </ProtectedLayout>

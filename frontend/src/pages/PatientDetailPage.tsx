@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { Patient, SymptomCheckin, VitalReading, CallSession, Alert, DailyProgressScore } from '../types';
 import { StatusBadge } from '../components/StatusBadge';
+import { PrescriptionVerificationModal } from '../components/PrescriptionVerificationModal';
+import { MonitoringPlanModal } from '../components/MonitoringPlanModal';
 import {
   ArrowLeft,
   User,
@@ -19,7 +21,12 @@ import {
   RotateCcw,
   CheckCircle2,
   Calendar,
-  Volume2
+  Volume2,
+  FileText,
+  Sparkles,
+  MessageSquare,
+  Star,
+  Upload
 } from 'lucide-react';
 
 export const PatientDetailPage: React.FC = () => {
@@ -28,17 +35,24 @@ export const PatientDetailPage: React.FC = () => {
   const { token, currentUser } = useAuth();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'overview' | 'vitals' | 'symptoms' | 'meds' | 'calls' | 'alerts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'vitals' | 'symptoms' | 'meds' | 'calls' | 'alerts' | 'prescriptions' | 'monitoring' | 'comms' | 'feedback'>('overview');
   const [patient, setPatient] = useState<Patient | null>(null);
   const [vitals, setVitals] = useState<VitalReading[]>([]);
   const [symptoms, setSymptoms] = useState<SymptomCheckin[]>([]);
   const [calls, setCalls] = useState<CallSession[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [todayScore, setTodayScore] = useState<DailyProgressScore | null>(null);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [monitoringTasks, setMonitoringTasks] = useState<any[]>([]);
+  const [comms, setComms] = useState<any[]>([]);
+  const [feedbacks, setFeedbacks] = useState<any[]>([]);
+  const [evidenceSummary, setEvidenceSummary] = useState<any | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Manual vital input modal
+  // Modals
   const [showVitalModal, setShowVitalModal] = useState(false);
+  const [showRxModal, setShowRxModal] = useState(false);
+  const [showMonitoringModal, setShowMonitoringModal] = useState(false);
   const [newVitalType, setNewVitalType] = useState('SPO2');
   const [newVitalVal, setNewVitalVal] = useState<number>(97);
   const [newVitalDia, setNewVitalDia] = useState<number>(80);
@@ -86,6 +100,31 @@ export const PatientDetailPage: React.FC = () => {
     apiClient.getTodayProgressScore(token, patientId)
       .then((score) => setTodayScore(score))
       .catch(() => setTodayScore(null));
+
+    // 6. Fetch Prescriptions & OCR
+    apiClient.getPrescriptionsForPatient(token, patientId)
+      .then((data) => setPrescriptions(data || []))
+      .catch(() => setPrescriptions([]));
+
+    // 7. Fetch Monitoring Tasks
+    apiClient.getMonitoringTasks(token, patientId)
+      .then((data) => setMonitoringTasks(data || []))
+      .catch(() => setMonitoringTasks([]));
+
+    // 8. Fetch Communications
+    apiClient.getPatientCommunications(token, patientId)
+      .then((data) => setComms(data || []))
+      .catch(() => setComms([]));
+
+    // 9. Fetch Feedback
+    apiClient.getPatientFeedback(token, patientId)
+      .then((data) => setFeedbacks(data || []))
+      .catch(() => setFeedbacks([]));
+
+    // 10. Fetch Evidence-Based Factual Summary (Phase 6)
+    apiClient.getPatientEvidenceSummary(token, patientId)
+      .then((data) => setEvidenceSummary(data))
+      .catch(() => setEvidenceSummary(null));
 
   }, [token, patientId]);
 
@@ -217,8 +256,24 @@ export const PatientDetailPage: React.FC = () => {
           )}
 
           <button
+            onClick={() => setShowRxModal(true)}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs"
+          >
+            <FileText className="w-4 h-4" />
+            <span>Prescription OCR</span>
+          </button>
+
+          <button
+            onClick={() => setShowMonitoringModal(true)}
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs"
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Monitoring Plan</span>
+          </button>
+
+          <button
             onClick={() => setShowVitalModal(true)}
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-xs"
+            className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-xs"
           >
             + Record Vital
           </button>
@@ -279,18 +334,22 @@ export const PatientDetailPage: React.FC = () => {
 
       {/* Navigation Tabs (DB-03 Patient 360 View) */}
       <div className="border-b border-slate-200">
-        <nav className="flex space-x-6 text-xs font-semibold">
+        <nav className="flex space-x-6 text-xs font-semibold overflow-x-auto scrollbar-none">
           {[
             { id: 'overview', label: 'Patient 360 Overview' },
-            { id: 'vitals', label: `Vitals History (${vitals.length})` },
-            { id: 'symptoms', label: `Symptoms & Checks (${symptoms.length})` },
-            { id: 'meds', label: 'Care Plan & Medications' },
-            { id: 'calls', label: `Call History & Resume (${calls.length})` },
+            { id: 'vitals', label: `Vitals (${vitals.length})` },
+            { id: 'symptoms', label: `Symptoms (${symptoms.length})` },
+            { id: 'meds', label: 'Care Plan & Meds' },
+            { id: 'prescriptions', label: `Prescriptions & OCR (${prescriptions.length})` },
+            { id: 'monitoring', label: `Monitoring & Tasks (${monitoringTasks.length})` },
+            { id: 'calls', label: `Call History (${calls.length})` },
+            { id: 'comms', label: `Simulated Channels (${comms.length})` },
+            { id: 'feedback', label: `Feedback (${feedbacks.length})` },
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
-              className={`pb-3 border-b-2 transition-all ${
+              className={`pb-3 border-b-2 whitespace-nowrap transition-all ${
                 activeTab === tab.id
                   ? 'border-indigo-600 text-indigo-600 font-bold'
                   : 'border-transparent text-slate-500 hover:text-slate-800'
@@ -304,7 +363,46 @@ export const PatientDetailPage: React.FC = () => {
 
       {/* Tab 1: Overview */}
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="space-y-6">
+          {/* Phase 6: Evidence-Based Factual Recovery Summary Card */}
+          {evidenceSummary && (
+            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-indigo-400 shrink-0" />
+                  <span className="font-bold text-sm tracking-tight text-white">
+                    Evidence-Based Clinical Recovery Summary (Phase 6)
+                  </span>
+                </div>
+                <span className="text-[11px] font-mono text-indigo-300 bg-white/10 px-2.5 py-1 rounded-md border border-white/10">
+                  {evidenceSummary.period_covered}
+                </span>
+              </div>
+              <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                {evidenceSummary.factual_summary}
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-4 border-t border-white/10 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Patient Adherence</span>
+                  <p className="font-extrabold text-emerald-400 text-base">{evidenceSummary.metrics.adherence_percentage}%</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Doses Taken / Missed</span>
+                  <p className="font-bold text-slate-200">{evidenceSummary.metrics.taken_doses} taken / {evidenceSummary.metrics.missed_doses} missed</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Check-ins Completed</span>
+                  <p className="font-bold text-slate-200">{evidenceSummary.metrics.checkins_total} recorded</p>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold">Safety Alerts</span>
+                  <p className="font-bold text-slate-200">{evidenceSummary.metrics.resolved_alerts} resolved ({evidenceSummary.metrics.unresolved_alerts} open)</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
           {/* Demographics & Caregiver Card */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
@@ -428,6 +526,7 @@ export const PatientDetailPage: React.FC = () => {
             </div>
           </div>
 
+        </div>
         </div>
       )}
 
@@ -646,6 +745,288 @@ export const PatientDetailPage: React.FC = () => {
           </table>
         </div>
       )}
+
+      {/* Tab 6: Prescriptions & OCR (Phase 4) */}
+      {activeTab === 'prescriptions' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <FileText className="w-5 h-5 text-emerald-600" />
+                <span>Prescription Upload & Free Local OCR (Phase 4)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Upload scanned discharge prescriptions (PDF or image). Extracted with free local Tesseract OCR and verified by doctor.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowRxModal(true)}
+              className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <Upload className="w-4 h-4" />
+              <span>Upload Prescription</span>
+            </button>
+          </div>
+
+          {prescriptions.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400 text-xs">
+              No prescriptions uploaded yet for this patient. Click "Upload Prescription" to run local OCR extraction.
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {prescriptions.map((rx) => (
+                <div key={rx.id} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                        <FileText className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-900">{rx.filename}</h4>
+                        <span className="text-[11px] text-slate-500">
+                          Uploaded {new Date(rx.created_at).toLocaleString()} · {(rx.file_size / 1024).toFixed(1)} KB
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-bold self-start sm:self-auto ${rx.status === 'VERIFIED' ? 'bg-emerald-100 text-emerald-800 border border-emerald-200' : 'bg-amber-100 text-amber-800 border border-amber-200'}`}>
+                      {rx.status}
+                    </span>
+                  </div>
+
+                  {/* Verified Regimen */}
+                  {rx.verified_medications && rx.verified_medications.length > 0 && (
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wider block mb-2">
+                        Doctor-Verified Regimen ({rx.verified_medications.length} Drugs Activated)
+                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {rx.verified_medications.map((vm: any, i: number) => (
+                          <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs">
+                            <span className="font-bold text-slate-900">{vm.medicine_name} {vm.dosage}</span>
+                            <p className="text-slate-600 text-[11px] mt-0.5">{vm.frequency} · {(vm.dose_times || []).join(', ')}</p>
+                            <p className="text-slate-500 text-[10px] mt-1">{vm.instructions}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clinician Notes */}
+                  {rx.clinician_notes && (
+                    <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 text-xs text-emerald-900">
+                      <strong>Clinician Approval Note:</strong> {rx.clinician_notes} (Approved by {rx.verified_by || 'Dr. Neha Kulkarni'})
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 7: Monitoring Plan & Tasks (Phase 3) */}
+      {activeTab === 'monitoring' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <Calendar className="w-5 h-5 text-indigo-600" />
+                <span>Automated Recovery Monitoring Tasks (Phase 3)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Database-persisted check-in schedule, response categorisation, and alert triggering.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowMonitoringModal(true)}
+              className="py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 shrink-0"
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Configure Monitoring Plan</span>
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <div className="p-4 border-b border-slate-200">
+              <h4 className="font-bold text-xs text-slate-900 uppercase tracking-wider">Scheduled Check-in Tasks</h4>
+            </div>
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="px-4 py-3">Scheduled For</th>
+                  <th className="px-4 py-3">Channel</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Category Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {monitoringTasks.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                      No scheduled monitoring tasks created yet. Configure a monitoring plan to generate automated tasks.
+                    </td>
+                  </tr>
+                ) : (
+                  monitoringTasks.map((t) => (
+                    <tr key={t.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-mono text-[11px] text-slate-700">
+                        {new Date(t.scheduled_for).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">{t.channel}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${t.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {t.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${t.category === 'NEEDS_CLINICIAN_REVIEW' ? 'bg-rose-100 text-rose-800' : (t.category === 'FOLLOW_UP_REQUIRED' ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700')}`}>
+                          {t.category}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 max-w-xs truncate">{t.category_reason || '—'}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 8: Simulated Channels (Phase 5) */}
+      {activeTab === 'comms' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-indigo-600" />
+                <span>Simulated Outbound Channels History (Phase 5)</span>
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Database-persisted records of simulated voice check-ins, WhatsApp alerts, and SMS reminders.
+              </p>
+            </div>
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-xl">
+              Honest Local Simulation (₹0 Cost)
+            </span>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 uppercase tracking-wider font-semibold">
+                <tr>
+                  <th className="px-4 py-3">Timestamp</th>
+                  <th className="px-4 py-3">Channel</th>
+                  <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Message Content</th>
+                  <th className="px-4 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {comms.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8 text-center text-slate-400">
+                      No communications logged yet for this patient.
+                    </td>
+                  </tr>
+                ) : (
+                  comms.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-mono text-[11px] text-slate-700 whitespace-nowrap">
+                        {new Date(c.sent_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
+                          {c.channel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{c.message_type}</td>
+                      <td className="px-4 py-3 text-slate-800 max-w-md">{c.content}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          {c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 9: Patient Feedback (Phase 5) */}
+      {activeTab === 'feedback' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+            <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+              <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+              <span>Patient Experience & Post-Discharge Feedback</span>
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Direct patient ratings and comments collected after daily check-ins and recovery milestones.
+            </p>
+          </div>
+
+          {feedbacks.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400 text-xs">
+              No feedback submitted by this patient yet. Feedback requests are automatically generated after check-ins.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {feedbacks.map((fb) => (
+                <div key={fb.id} className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1 text-amber-400">
+                      {Array.from({ length: fb.rating }).map((_, i) => (
+                        <Star key={i} className="w-4 h-4 fill-current" />
+                      ))}
+                      <span className="ml-1 text-xs font-bold text-slate-700">{fb.rating} / 5</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-slate-400">{new Date(fb.created_at).toLocaleDateString()}</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md inline-block">
+                    {fb.category.replace('_', ' ')}
+                  </span>
+                  <p className="text-xs text-slate-800 font-medium bg-slate-50 p-3 rounded-xl border border-slate-100">
+                    "{fb.comments || 'Patient rated recovery support without written remarks.'}"
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Prescription Verification Modal (Phase 4) */}
+      <PrescriptionVerificationModal
+        isOpen={showRxModal}
+        onClose={() => setShowRxModal(false)}
+        patientId={patientId}
+        patientName={`${patient.first_name} ${patient.last_name}`}
+        token={token}
+        onVerificationComplete={() => {
+          if (!token) return;
+          apiClient.getPrescriptionsForPatient(token, patientId).then((data) => setPrescriptions(data || []));
+          apiClient.getPatient(token, patientId).then((data) => setPatient(data));
+        }}
+      />
+
+      {/* Monitoring Plan Modal (Phase 3) */}
+      <MonitoringPlanModal
+        isOpen={showMonitoringModal}
+        onClose={() => setShowMonitoringModal(false)}
+        patientId={patientId}
+        patientName={`${patient.first_name} ${patient.last_name}`}
+        token={token}
+        onPlanSaved={() => {
+          if (!token) return;
+          apiClient.getMonitoringTasks(token, patientId).then((data) => setMonitoringTasks(data || []));
+          apiClient.getPatientCommunications(token, patientId).then((data) => setComms(data || []));
+        }}
+      />
 
       {/* Record Vital Modal */}
       {showVitalModal && (

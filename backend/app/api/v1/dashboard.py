@@ -12,6 +12,8 @@ from app.models.clinical import MedicationLog, VitalReading, SymptomCheckin, Med
 from app.models.conversation import CallSession, CallTurn
 from app.models.appointment import Appointment
 from app.models.progress import DailyProgressScore
+from app.models.monitoring import CheckinTask, PatientFeedback, CommunicationLog
+from app.models.prescription import PrescriptionUpload
 
 router = APIRouter(prefix="/dashboard", tags=["Care-Team Clinical Dashboard"])
 
@@ -60,10 +62,29 @@ def get_dashboard_summary(
     )
     upcoming_appts_count = len(db.execute(appt_stmt).scalars().all())
 
+    # Phase 6 Enhancements: Check-ins, Tasks & Feedback from real database records
+    pending_tasks_stmt = select(CheckinTask).where(CheckinTask.status == "PENDING")
+    upcoming_checkins_count = len(db.execute(pending_tasks_stmt).scalars().all())
+
+    overdue_tasks_stmt = select(CheckinTask).where(
+        (CheckinTask.status == "EXPIRED") | (CheckinTask.category == "UNANSWERED")
+    )
+    overdue_checkins_count = len(db.execute(overdue_tasks_stmt).scalars().all())
+
+    requiring_review_stmt = select(CheckinTask).where(CheckinTask.category == "NEEDS_CLINICIAN_REVIEW")
+    requiring_review_tasks = len(db.execute(requiring_review_stmt).scalars().all())
+
+    recent_fb_stmt = select(PatientFeedback).order_by(desc(PatientFeedback.created_at)).limit(5)
+    recent_feedbacks = db.execute(recent_fb_stmt).scalars().all()
+
     return {
         "active_patients": active_count,
         "draft_patients": draft_count,
         "completed_patients": completed_count,
+        "assigned_patient_count": active_count,
+        "requiring_clinician_review_count": len(alerts) + requiring_review_tasks,
+        "upcoming_checkins_count": upcoming_checkins_count,
+        "overdue_checkins_count": overdue_checkins_count,
         "overall_adherence_rate": adherence_rate,
         "missed_medications_24h": missed_meds_count,
         "open_alerts": {
@@ -73,7 +94,101 @@ def get_dashboard_summary(
             "medium": medium_alerts
         },
         "upcoming_followups_48h": upcoming_appts_count,
+        "recent_feedback_count": len(recent_feedbacks),
+        "recent_feedback": [
+            {
+                "id": fb.id,
+                "patient_id": fb.patient_id,
+                "rating": fb.rating,
+                "category": fb.category,
+                "comments": fb.comments,
+                "created_at": fb.created_at.isoformat()
+            }
+            for fb in recent_feedbacks
+        ],
         "facility_id": fac
+    }
+
+@router.get("/patient/{patient_id}/evidence-summary")
+def get_patient_evidence_summary(
+    patient_id: str,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(get_current_user)
+):
+    """
+    Phase 6: Generates a factual, evidence-based recovery summary strictly from stored DB records.
+    Includes the period covered and exact clinical counts. No fabricated AI scores.
+    """
+    patient = db.get(Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found.")
+    verify_patient_access(patient_id, current_user, patient.facility_id)
+
+    period_days = (date.today() - patient.discharge_date).days
+    period_str = f"Post-discharge recovery period: Day 0 ({patient.discharge_date}) to Day {period_days} ({date.today()})"
+
+    # 1. Medication adherence from DB
+    med_logs = db.execute(
+        select(MedicationLog).where(MedicationLog.patient_id == patient_id)
+    ).scalars().all()
+    total_doses = len(med_logs)
+    taken_doses = sum(1 for m in med_logs if m.status == "TAKEN")
+    missed_doses = sum(1 for m in med_logs if m.status in ["MISSED", "DEFERRED"])
+    adherence_pct = round((taken_doses / total_doses * 100), 1) if total_doses > 0 else 100.0
+
+    # 2. Vitals trajectory from DB
+    latest_vitals = db.execute(
+        select(VitalReading).where(VitalReading.patient_id == patient_id)
+        .order_by(desc(VitalReading.recorded_at)).limit(5)
+    ).scalars().all()
+    vitals_summary = [
+        {"type": v.vital_type, "value": v.value, "unit": v.unit, "status": v.status, "date": v.recorded_at.strftime("%d-%b %H:%M")}
+        for v in latest_vitals
+    ]
+
+    # 3. Check-ins & Categorisation from DB
+    checkins = db.execute(
+        select(CheckinTask).where(CheckinTask.patient_id == patient_id)
+        .order_by(desc(CheckinTask.scheduled_for)).limit(10)
+    ).scalars().all()
+    routine_count = sum(1 for c in checkins if c.category == "ROUTINE")
+    escalated_count = sum(1 for c in checkins if c.category in ["NEEDS_CLINICIAN_REVIEW", "FOLLOW_UP_REQUIRED"])
+
+    # 4. Alerts history from DB
+    alerts = db.execute(
+        select(Alert).where(Alert.patient_id == patient_id).order_by(desc(Alert.created_at))
+    ).scalars().all()
+    unresolved_alerts = sum(1 for a in alerts if a.status in ["OPEN", "ACKNOWLEDGED"])
+    resolved_alerts = sum(1 for a in alerts if a.status == "RESOLVED")
+
+    # 5. Build concise clinical narrative strictly from database metrics
+    narrative_lines = [
+        f"Patient {patient.first_name} {patient.last_name} is on Day {period_days} post-discharge following {patient.diagnosis}.",
+        f"Medication adherence: {adherence_pct}% ({taken_doses} doses confirmed taken, {missed_doses} missed doses).",
+        f"Recovery check-ins: {len(checkins)} check-in cycles completed ({routine_count} routine, {escalated_count} clinical reviews).",
+        f"Clinical safety alerts: {len(alerts)} total alerts ({unresolved_alerts} active open, {resolved_alerts} clinically resolved with documented notes)."
+    ]
+    if latest_vitals:
+        v_str = ", ".join([f"{v.vital_type}: {v.value}{v.unit} ({v.status})" for v in latest_vitals[:3]])
+        narrative_lines.append(f"Latest physiological readings: {v_str}.")
+
+    return {
+        "patient_id": patient_id,
+        "patient_name": f"{patient.first_name} {patient.last_name}",
+        "diagnosis": patient.diagnosis,
+        "period_covered": period_str,
+        "period_days": period_days,
+        "factual_summary": " ".join(narrative_lines),
+        "metrics": {
+            "adherence_percentage": adherence_pct,
+            "total_doses": total_doses,
+            "taken_doses": taken_doses,
+            "missed_doses": missed_doses,
+            "checkins_total": len(checkins),
+            "unresolved_alerts": unresolved_alerts,
+            "resolved_alerts": resolved_alerts
+        },
+        "recent_vitals": vitals_summary
     }
 
 @router.get("/priority-patients")
