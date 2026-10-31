@@ -40,6 +40,8 @@ class BackgroundMonitoringScheduler:
 
     @classmethod
     async def _loop(cls):
+        # Give lifespan 3 seconds to complete table creation and migrations on startup
+        await asyncio.sleep(3)
         while cls._is_running:
             try:
                 # Run monitoring cycle

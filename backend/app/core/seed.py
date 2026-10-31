@@ -456,4 +456,22 @@ def seed_initial_data(db: Session):
         )
         db.add(c3)
 
+    # 7. Default Monitoring Plan for Ramesh Patil (patient-demo-1)
+    from app.models.monitoring import MonitoringPlan
+    plan_stmt = select(MonitoringPlan).where(MonitoringPlan.patient_id == "patient-demo-1")
+    if not db.execute(plan_stmt).scalars().first():
+        plan = MonitoringPlan(
+            id="plan-demo-1",
+            patient_id="patient-demo-1",
+            clinician_id="user-neha-101",
+            start_date=date.today() - timedelta(days=3),
+            end_date=date.today() + timedelta(days=27),
+            frequency="DAILY",
+            communication_channel="VOICE_CALL",
+            preferred_call_window_start="10:00",
+            preferred_call_window_end="12:00",
+            is_active=True
+        )
+        db.add(plan)
+
     db.commit()

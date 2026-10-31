@@ -2,10 +2,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import logging
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine, Base, SessionLocal
 from app.core.seed import seed_initial_data
+import app.models
 
 # Import API routers
 from app.api.v1.auth import router as auth_router
@@ -32,12 +34,21 @@ logger = logging.getLogger("care-companion")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize PostgreSQL Schema
+    # Initialize PostgreSQL Schema & Migrations
     logger.info("Connecting to PostgreSQL / Supabase...")
     try:
-        with engine.connect() as conn:
+        with engine.begin() as conn:
+            # 1. Run migrations for altered tables in existing databases
+            try:
+                conn.execute(text("ALTER TABLE user_profiles ADD COLUMN IF NOT EXISTS patient_id VARCHAR(64);"))
+                logger.info("Schema migration: user_profiles.patient_id column verified.")
+            except Exception as col_err:
+                logger.info(f"Column migration check note: {col_err}")
+
+            # 2. Create all missing tables in Base.metadata (monitoring_plans, checkin_tasks, etc.)
             Base.metadata.create_all(bind=conn)
-            logger.info("PostgreSQL relational schema verified.")
+            logger.info("PostgreSQL relational schema and tables verified & committed.")
+
         with SessionLocal() as session:
             seed_initial_data(session)
             logger.info("Clinical knowledge base and seed data verified.")
