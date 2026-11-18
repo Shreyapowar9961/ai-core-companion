@@ -264,9 +264,10 @@ export const PatientDetailPage: React.FC = () => {
           <button
             onClick={() => setShowRxModal(true)}
             className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3 py-2 rounded-xl flex items-center space-x-1.5 transition-colors shadow-xs"
+            title="Upload and verify discharge prescriptions"
           >
             <FileText className="w-4 h-4" />
-            <span>Prescription OCR</span>
+            <span>Prescription Management</span>
           </button>
 
           <button
@@ -346,7 +347,7 @@ export const PatientDetailPage: React.FC = () => {
             { id: 'vitals', label: `Vitals (${vitals.length})` },
             { id: 'symptoms', label: `Symptoms (${symptoms.length})` },
             { id: 'meds', label: 'Care Plan & Meds' },
-            { id: 'prescriptions', label: `Prescriptions & OCR (${prescriptions.length})` },
+            { id: 'prescriptions', label: `Prescription Management (${prescriptions.length})` },
             { id: 'monitoring', label: `Monitoring & Tasks (${monitoringTasks.length})` },
             { id: 'calls', label: `Call History (${calls.length})` },
             { id: 'comms', label: `Simulated Channels (${comms.length})` },
