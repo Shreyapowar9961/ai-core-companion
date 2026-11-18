@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, desc, and_
-from typing import List, Optional, Dict, Any
+from sqlalchemy import select, desc, and_, func
+from typing import List, Optional, Dict, Any, Tuple
 from datetime import datetime, date, timedelta
 from pydantic import BaseModel
 
@@ -14,6 +14,14 @@ from app.models.monitoring import MonitoringPlan, CheckinTask, CommunicationLog,
 from app.models.prescription import PrescriptionUpload
 from app.models.rules_alert import Alert
 from app.models.progress import DailyProgressScore
+from app.models.device_token import PushDeviceRegistration
+from app.schemas.device_token import (
+    DeviceTokenRegisterRequest,
+    DeviceTokenUnregisterRequest,
+    NotificationPreferencesUpdateRequest,
+    NotificationPreferencesResponse
+)
+from app.services.fcm_service import mask_token
 from app.services.rules_engine import RulesEngine
 
 router = APIRouter(prefix="/portal", tags=["Patient Portal"])
@@ -160,11 +168,9 @@ def get_patient_dashboard(
     total_today_scheduled = len(schedules)
     pending_count = max(0, total_today_scheduled - (taken_count + missed_count))
 
-    # 2. Latest Progress Score
-    progress_score = db.execute(
-        select(DailyProgressScore).where(DailyProgressScore.patient_id == patient_id)
-        .order_by(desc(DailyProgressScore.score_date)).limit(1)
-    ).scalars().first()
+    # 2. Latest Progress Score (calculate real-time from database)
+    from app.services.progress_service import ProgressService
+    progress_score = ProgressService.calculate_daily_progress_score(db, patient_id)
 
     # 3. Next upcoming or pending checkin
     next_task = db.execute(
@@ -185,7 +191,7 @@ def get_patient_dashboard(
         "preferred_language": patient.preferred_language,
         "recovery_status": patient.status,
         "days_since_discharge": (date.today() - patient.discharge_date).days,
-        "progress_score": progress_score.overall_score if progress_score else 92.0,
+        "progress_score": progress_score.overall_score if progress_score else 100.0,
         "medication_summary": {
             "total": total_today_scheduled,
             "taken": taken_count,
@@ -200,8 +206,8 @@ def get_patient_dashboard(
             "is_due": True if next_task and next_task.scheduled_for <= datetime.utcnow() else False
         },
         "doctor": {
-            "name": patient.treating_doctor_name or "Attending Cardiologist",
-            "phone": patient.treating_doctor_phone or "+91 20 2612 3456"
+            "name": patient.treating_doctor_name or "Attending Clinician",
+            "phone": patient.treating_doctor_phone or ""
         },
         "total_notifications": notif_count
     }
@@ -367,10 +373,11 @@ def submit_checkin_response(
 
     category_reason_str = "; ".join(reasons)
 
-    # 4. Trigger alert in database if clinical review needed
+    # 4. Trigger alert in database if clinical review needed (deduplicated)
     created_alert_id = None
     if category == "NEEDS_CLINICIAN_REVIEW":
-        alert = Alert(
+        alert, created = RulesEngine.create_or_get_alert(
+            db=db,
             patient_id=patient_id,
             rule_code="PORTAL_CHECKIN_REVIEW",
             severity="CRITICAL" if (req.spo2 and req.spo2 < 88) or req.breathlessness == "severe" else "HIGH",
@@ -383,11 +390,9 @@ def submit_checkin_response(
                 "spo2": req.spo2,
                 "bp": f"{req.systolic_bp}/{req.diastolic_bp}" if req.systolic_bp else None
             },
-            status="OPEN",
-            sla_due_at=datetime.utcnow() + timedelta(minutes=15 if req.spo2 and req.spo2 < 88 else 60)
+            sla_due_at=datetime.utcnow() + timedelta(minutes=15 if req.spo2 and req.spo2 < 88 else 60),
+            action_log_notes="Auto-triggered by patient portal check-in review submission."
         )
-        db.add(alert)
-        db.flush()
         created_alert_id = alert.id
 
     # 5. Complete CheckinTask if task_id provided or create completed task record
@@ -526,7 +531,7 @@ def get_patient_prescriptions(
             "verified_by": p.verified_by,
             "verified_at": p.verified_at.isoformat() if p.verified_at else None,
             "created_at": p.created_at.isoformat(),
-            "medications": p.verified_medications or p.raw_ocr_parsed or [],
+            "medications": p.verified_medications or p.extracted_medications or [],
             "clinician_notes": p.clinician_notes
         }
         for p in prescriptions
@@ -557,6 +562,131 @@ def get_medication_history(
         for l in logs
     ]
 
+def resolve_intended_dose(
+    db: Session,
+    patient_id: str,
+    medicine_name: str,
+    medication_schedule_id: Optional[str],
+    scheduled_time: Optional[datetime],
+) -> Tuple[datetime, Optional[MedicationLog], Optional[MedicationSchedule]]:
+    """
+    Phase 1.3: Resolves unambiguous dose occurrence and matches existing medication log.
+    - Inspects active schedule to find expected dose occurrences.
+    - If multiple dose occurrences match without an explicit scheduled_time, safely rejects (HTTP 409).
+    - If multiple existing logs match without unambiguous resolution, safely rejects (HTTP 409).
+    - Does NOT substitute the latest-created medication log arbitrarily.
+    - Retains full compatibility with single-dose / explicit confirmations.
+    """
+    sched: Optional[MedicationSchedule] = None
+    if medication_schedule_id:
+        sched = db.get(MedicationSchedule, medication_schedule_id)
+        if sched and sched.patient_id != patient_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Medication schedule does not belong to verified patient."
+            )
+    else:
+        # Search for active schedule matching patient and medicine name
+        sched_stmt = select(MedicationSchedule).where(
+            MedicationSchedule.patient_id == patient_id,
+            MedicationSchedule.is_active == True
+        )
+        candidates = db.execute(sched_stmt).scalars().all()
+        matched_scheds = [
+            s for s in candidates
+            if s.patient_id == patient_id and s.medicine_name.strip().lower() == medicine_name.strip().lower()
+        ]
+        sched = matched_scheds[0] if matched_scheds else None
+
+    ref_time = scheduled_time or datetime.utcnow()
+    explicit_time = (scheduled_time is not None)
+    target_sched_time = ref_time
+
+    if sched:
+        from app.api.v1.dashboard import parse_schedule_dose_times
+        dose_times = parse_schedule_dose_times(sched)
+        if dose_times:
+            ref_date = ref_time.date()
+            candidate_slots: List[Tuple[datetime, float]] = []
+            for d in [ref_date - timedelta(days=1), ref_date, ref_date + timedelta(days=1)]:
+                for t in dose_times:
+                    slot_dt = datetime.combine(d, t)
+                    diff = abs((slot_dt - ref_time).total_seconds())
+                    if diff <= 2 * 3600:
+                        candidate_slots.append((slot_dt, diff))
+
+            if candidate_slots:
+                if explicit_time:
+                    exact_matches = [s for s, diff in candidate_slots if s == scheduled_time or diff < 60]
+                    if exact_matches:
+                        target_sched_time = exact_matches[0]
+                    else:
+                        candidate_slots.sort(key=lambda x: x[1])
+                        if len(candidate_slots) > 1 and abs(candidate_slots[0][1] - candidate_slots[1][1]) < 300:
+                            raise HTTPException(
+                                status_code=status.HTTP_409_CONFLICT,
+                                detail=f"Ambiguous dose matching: Scheduled time {scheduled_time.isoformat()} matches multiple dose occurrences equally. Please specify the exact scheduled dose occurrence time."
+                            )
+                        target_sched_time = candidate_slots[0][0]
+                else:
+                    if len(candidate_slots) > 1:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Ambiguous dose confirmation: Multiple scheduled dose occurrences match the current window for {medicine_name}. Please specify an explicit scheduled_time."
+                        )
+                    else:
+                        target_sched_time = candidate_slots[0][0]
+
+    time_min = target_sched_time - timedelta(hours=2)
+    time_max = target_sched_time + timedelta(hours=2)
+
+    existing_stmt = select(MedicationLog).where(
+        MedicationLog.patient_id == patient_id
+    )
+    if sched:
+        existing_stmt = existing_stmt.where(MedicationLog.medication_schedule_id == sched.id)
+    elif medication_schedule_id:
+        existing_stmt = existing_stmt.where(MedicationLog.medication_schedule_id == medication_schedule_id)
+    else:
+        existing_stmt = existing_stmt.where(MedicationLog.medicine_name == medicine_name)
+
+    existing_stmt = existing_stmt.where(
+        MedicationLog.scheduled_time >= time_min,
+        MedicationLog.scheduled_time <= time_max
+    )
+
+    all_logs = db.execute(existing_stmt).scalars().all()
+    matching_logs = [
+        l for l in all_logs
+        if l.patient_id == patient_id
+        and (l.medication_schedule_id == sched.id if sched else (l.medication_schedule_id == medication_schedule_id if medication_schedule_id else l.medicine_name.strip().lower() == medicine_name.strip().lower()))
+        and (time_min <= l.scheduled_time <= time_max)
+    ]
+
+    matched_log: Optional[MedicationLog] = None
+    if len(matching_logs) == 1:
+        matched_log = matching_logs[0]
+    elif len(matching_logs) > 1:
+        exact_logs = [l for l in matching_logs if l.scheduled_time == target_sched_time]
+        if len(exact_logs) == 1:
+            matched_log = exact_logs[0]
+        elif len(exact_logs) > 1:
+            taken_logs = [l for l in exact_logs if l.status == "TAKEN"]
+            matched_log = taken_logs[0] if taken_logs else exact_logs[0]
+        else:
+            sorted_logs = sorted(matching_logs, key=lambda l: abs((l.scheduled_time - target_sched_time).total_seconds()))
+            diff1 = abs((sorted_logs[0].scheduled_time - target_sched_time).total_seconds())
+            diff2 = abs((sorted_logs[1].scheduled_time - target_sched_time).total_seconds())
+            if (diff2 - diff1) < 1800:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Ambiguous dose matching: Multiple existing medication logs match the window around {target_sched_time.isoformat()}. Please specify an exact scheduled_time."
+                )
+            matched_log = sorted_logs[0]
+
+    return target_sched_time, matched_log, sched
+
+
 @router.post("/medications/confirm-taken")
 def confirm_medication_taken(
     req: ConfirmMedicationRequest,
@@ -564,24 +694,55 @@ def confirm_medication_taken(
     db: Session = Depends(get_db)
 ):
     """
-    Patient confirms medication intake. Recorded as patient-reported event (MD-01, Phase 4).
+    Phase 1.3: Idempotent patient confirmation of medication intake.
+    - Prevents ambiguous dose matching when multiple candidate occurrences exist.
+    - Repeated confirmation of the same dose does NOT create duplicate TAKEN rows.
+    - Allows correcting a mistaken MISSED log to TAKEN in-place.
     """
     patient_id = get_verified_patient_id(current_user, db)
 
-    log_entry = MedicationLog(
+    # Resolve intended dose occurrence and match existing log
+    target_sched_time, existing_log, sched = resolve_intended_dose(
+        db=db,
         patient_id=patient_id,
-        medication_schedule_id=req.medication_schedule_id,
         medicine_name=req.medicine_name,
-        dosage=req.dosage or "Prescribed dose",
-        scheduled_time=req.scheduled_time or datetime.utcnow(),
-        actual_time=datetime.utcnow(),
-        status="TAKEN",
-        stated_reason="Patient confirmed via portal",
-        recorded_via="PATIENT_PORTAL"
+        medication_schedule_id=req.medication_schedule_id,
+        scheduled_time=req.scheduled_time
     )
-    db.add(log_entry)
-    db.commit()
-    db.refresh(log_entry)
+
+    if existing_log:
+        if existing_log.status == "TAKEN":
+            # Already confirmed taken: idempotent no-op, return existing log
+            return {
+                "message": f"Dose of {req.medicine_name} already confirmed as taken.",
+                "status": "TAKEN",
+                "confirmed_at": (existing_log.actual_time or existing_log.created_at).isoformat(),
+                "idempotent": True
+            }
+        else:
+            # Update pending/missed log to taken (remedy mistaken miss)
+            existing_log.status = "TAKEN"
+            existing_log.actual_time = datetime.utcnow()
+            existing_log.stated_reason = "Patient confirmed via portal"
+            existing_log.recorded_via = "PATIENT_PORTAL"
+            db.commit()
+            db.refresh(existing_log)
+            log_entry = existing_log
+    else:
+        log_entry = MedicationLog(
+            patient_id=patient_id,
+            medication_schedule_id=req.medication_schedule_id or (sched.id if sched else None),
+            medicine_name=req.medicine_name,
+            dosage=req.dosage or (sched.dosage if sched else "Prescribed dose"),
+            scheduled_time=target_sched_time,
+            actual_time=datetime.utcnow(),
+            status="TAKEN",
+            stated_reason="Patient confirmed via portal",
+            recorded_via="PATIENT_PORTAL"
+        )
+        db.add(log_entry)
+        db.commit()
+        db.refresh(log_entry)
 
     log_audit_event(
         db=db,
@@ -589,7 +750,7 @@ def confirm_medication_taken(
         actor_id=current_user.id,
         actor_role=current_user.role.value,
         resource="medication_log",
-        details={"medicine_name": req.medicine_name, "status": "TAKEN"},
+        details={"medicine_name": req.medicine_name, "status": "TAKEN", "log_id": log_entry.id, "scheduled_time": target_sched_time.isoformat()},
         patient_id=patient_id
     )
 
@@ -599,6 +760,7 @@ def confirm_medication_taken(
         "confirmed_at": log_entry.actual_time.isoformat()
     }
 
+
 @router.post("/medications/report-missed")
 def report_missed_medication(
     req: ReportMissedMedicationRequest,
@@ -606,27 +768,49 @@ def report_missed_medication(
     db: Session = Depends(get_db)
 ):
     """
-    Patient reports missed dose with structured reason (MD-02, Phase 4).
+    Phase 1.3: Idempotent reporting of missed medication dose.
+    - Prevents overwriting a TAKEN dose to MISSED (raises HTTP 409 Conflict).
+    - Prevents ambiguous dose matching when multiple candidate occurrences exist.
     """
     patient_id = get_verified_patient_id(current_user, db)
 
-    log_entry = MedicationLog(
+    # Resolve intended dose occurrence and match existing log
+    target_sched_time, existing_log, sched = resolve_intended_dose(
+        db=db,
         patient_id=patient_id,
-        medication_schedule_id=req.medication_schedule_id,
         medicine_name=req.medicine_name,
-        dosage=req.dosage or "Prescribed dose",
-        scheduled_time=req.scheduled_time or datetime.utcnow(),
-        actual_time=datetime.utcnow(),
-        status="MISSED",
-        stated_reason=req.stated_reason,
-        recorded_via="PATIENT_PORTAL"
+        medication_schedule_id=req.medication_schedule_id,
+        scheduled_time=req.scheduled_time
     )
-    db.add(log_entry)
-    db.flush()
 
+    if existing_log:
+        if existing_log.status == "TAKEN":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Dose of {existing_log.medicine_name} scheduled for {existing_log.scheduled_time.isoformat()} is already recorded as TAKEN and cannot be overwritten to MISSED."
+            )
+        existing_log.status = "MISSED"
+        existing_log.stated_reason = req.stated_reason
+        existing_log.actual_time = datetime.utcnow()
+        existing_log.recorded_via = "PATIENT_PORTAL"
+        log_entry = existing_log
+    else:
+        log_entry = MedicationLog(
+            patient_id=patient_id,
+            medication_schedule_id=req.medication_schedule_id or (sched.id if sched else None),
+            medicine_name=req.medicine_name,
+            dosage=req.dosage or (sched.dosage if sched else "Prescribed dose"),
+            scheduled_time=target_sched_time,
+            actual_time=datetime.utcnow(),
+            status="MISSED",
+            stated_reason=req.stated_reason,
+            recorded_via="PATIENT_PORTAL"
+        )
+        db.add(log_entry)
+
+    db.flush()
     # Evaluate consecutive misses in RulesEngine
     RulesEngine.evaluate_medication_miss(db, patient_id, req.medicine_name)
-
     db.commit()
     db.refresh(log_entry)
 
@@ -636,7 +820,7 @@ def report_missed_medication(
         actor_id=current_user.id,
         actor_role=current_user.role.value,
         resource="medication_log",
-        details={"medicine_name": req.medicine_name, "reason": req.stated_reason},
+        details={"medicine_name": req.medicine_name, "reason": req.stated_reason, "scheduled_time": target_sched_time.isoformat()},
         patient_id=patient_id
     )
 
@@ -665,10 +849,76 @@ def get_patient_notifications(
             "content": l.content,
             "status": l.status,
             "is_simulated": l.is_simulated,
-            "sent_at": l.sent_at.isoformat()
+            "sent_at": l.sent_at.isoformat(),
+            "viewed_at": l.viewed_at.isoformat() if l.viewed_at else None,
+            "is_read": l.viewed_at is not None
         }
         for l in logs
     ]
+
+@router.get("/notifications/unread-count")
+def get_unread_notification_count(
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    patient_id = get_verified_patient_id(current_user, db)
+    count = db.execute(
+        select(func.count(CommunicationLog.id)).where(
+            CommunicationLog.patient_id == patient_id,
+            CommunicationLog.viewed_at.is_(None)
+        )
+    ).scalar() or 0
+    return {"unread_count": count}
+
+@router.put("/notifications/{notification_id}/read")
+def mark_notification_read(
+    notification_id: str,
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    patient_id = get_verified_patient_id(current_user, db)
+    log = db.get(CommunicationLog, notification_id)
+    if not log or log.patient_id != patient_id:
+        raise HTTPException(status_code=404, detail="Notification not found.")
+
+    if log.viewed_at is None:
+        log.viewed_at = datetime.utcnow()
+        log.status = "VIEWED"
+        db.commit()
+        db.refresh(log)
+
+    return {
+        "id": log.id,
+        "channel": log.channel,
+        "message_type": log.message_type,
+        "content": log.content,
+        "status": log.status,
+        "is_simulated": log.is_simulated,
+        "sent_at": log.sent_at.isoformat(),
+        "viewed_at": log.viewed_at.isoformat() if log.viewed_at else None,
+        "is_read": True
+    }
+
+@router.put("/notifications/mark-all-read")
+def mark_all_notifications_read(
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    patient_id = get_verified_patient_id(current_user, db)
+    now = datetime.utcnow()
+    unread_logs = db.execute(
+        select(CommunicationLog).where(
+            CommunicationLog.patient_id == patient_id,
+            CommunicationLog.viewed_at.is_(None)
+        )
+    ).scalars().all()
+
+    for log in unread_logs:
+        log.viewed_at = now
+        log.status = "VIEWED"
+
+    db.commit()
+    return {"marked_read_count": len(unread_logs), "status": "SUCCESS"}
 
 @router.get("/communications")
 def get_communication_history(
@@ -768,3 +1018,209 @@ def update_patient_language(
     db.commit()
 
     return {"message": f"Preferred language updated to '{req.language}'.", "language": req.language}
+
+
+# ----------------- FCM Device Token & Preferences Endpoints -----------------
+
+@router.post("/notifications/device-token")
+def register_device_token(
+    req: DeviceTokenRegisterRequest,
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    """
+    Registers or updates an FCM web push device token for the authenticated patient.
+    Strictly isolated: Enforces patient ownership and prevents cross-patient IDOR.
+    """
+    patient_id = get_verified_patient_id(current_user, db)
+    raw_token = req.fcm_token.strip()
+    if not raw_token:
+        raise HTTPException(status_code=400, detail="FCM token cannot be empty.")
+
+    now = datetime.utcnow()
+
+    # If token exists for another patient, deactivate it (device transfer / sharing)
+    other_registrations = db.execute(
+        select(PushDeviceRegistration).where(
+            PushDeviceRegistration.fcm_token == raw_token,
+            PushDeviceRegistration.patient_id != patient_id,
+            PushDeviceRegistration.is_active == True
+        )
+    ).scalars().all()
+    for other in other_registrations:
+        other.is_active = False
+        other.invalidated_at = now
+        other.invalidation_reason = "DEVICE_REASSIGNED"
+
+    # Check if registration exists for this patient
+    existing = db.execute(
+        select(PushDeviceRegistration).where(
+            PushDeviceRegistration.patient_id == patient_id,
+            PushDeviceRegistration.fcm_token == raw_token
+        )
+    ).scalars().first()
+
+    if existing:
+        existing.is_active = True
+        existing.invalidated_at = None
+        existing.invalidation_reason = None
+        existing.device_type = req.device_type or existing.device_type
+        if req.user_agent:
+            existing.user_agent = req.user_agent
+        existing.updated_at = now
+        db.commit()
+        db.refresh(existing)
+        reg_id = existing.id
+    else:
+        new_reg = PushDeviceRegistration(
+            patient_id=patient_id,
+            fcm_token=raw_token,
+            device_type=req.device_type or "web",
+            user_agent=req.user_agent,
+            is_active=True,
+            push_enabled=True,
+            created_at=now,
+            updated_at=now
+        )
+        db.add(new_reg)
+        db.commit()
+        db.refresh(new_reg)
+        reg_id = new_reg.id
+
+    log_audit_event(
+        db=db,
+        event_type="FCM_TOKEN_REGISTERED",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        resource="push_device_registration",
+        details={"registration_id": reg_id, "token_preview": mask_token(raw_token)},
+        patient_id=patient_id
+    )
+
+    return {
+        "status": "SUCCESS",
+        "registration_id": reg_id,
+        "is_active": True,
+        "message": "FCM device token registered successfully."
+    }
+
+
+@router.delete("/notifications/device-token")
+def unregister_device_token(
+    req: Optional[DeviceTokenUnregisterRequest] = None,
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    """
+    Deactivates FCM device token registration for the authenticated patient.
+    Can deactivate a specific token or all active tokens (e.g. during logout).
+    """
+    patient_id = get_verified_patient_id(current_user, db)
+    now = datetime.utcnow()
+
+    target_token = req.fcm_token.strip() if req and req.fcm_token else None
+
+    query = select(PushDeviceRegistration).where(
+        PushDeviceRegistration.patient_id == patient_id,
+        PushDeviceRegistration.is_active == True
+    )
+    if target_token:
+        query = query.where(PushDeviceRegistration.fcm_token == target_token)
+
+    active_regs = db.execute(query).scalars().all()
+    count = len(active_regs)
+
+    for reg in active_regs:
+        reg.is_active = False
+        reg.invalidated_at = now
+        reg.invalidation_reason = "USER_DEREGISTERED"
+
+    db.commit()
+
+    log_audit_event(
+        db=db,
+        event_type="FCM_TOKEN_DEREGISTERED",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        resource="push_device_registration",
+        details={"deactivated_count": count},
+        patient_id=patient_id
+    )
+
+    return {
+        "status": "SUCCESS",
+        "deactivated_count": count,
+        "message": f"Successfully deactivated {count} device registration(s)."
+    }
+
+
+@router.get("/notifications/preferences", response_model=NotificationPreferencesResponse)
+def get_notification_preferences(
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    """
+    Retrieves the authenticated patient's current push notification registration status and preferences.
+    """
+    patient_id = get_verified_patient_id(current_user, db)
+
+    regs = db.execute(
+        select(PushDeviceRegistration).where(
+            PushDeviceRegistration.patient_id == patient_id
+        ).order_by(desc(PushDeviceRegistration.created_at))
+    ).scalars().all()
+
+    active_regs = [r for r in regs if r.is_active]
+    push_enabled = any(r.push_enabled for r in active_regs) if active_regs else True
+
+    registered_at_str = regs[0].created_at.isoformat() if regs else None
+    last_sent = [r.last_sent_at for r in regs if r.last_sent_at]
+    last_sent_str = max(last_sent).isoformat() if last_sent else None
+
+    return NotificationPreferencesResponse(
+        push_enabled=push_enabled,
+        has_registered_device=len(active_regs) > 0,
+        active_devices_count=len(active_regs),
+        registered_at=registered_at_str,
+        last_sent_at=last_sent_str
+    )
+
+
+@router.put("/notifications/preferences")
+def update_notification_preferences(
+    req: NotificationPreferencesUpdateRequest,
+    current_user: AuthUser = Depends(require_roles([UserRole.PATIENT, UserRole.ADMIN])),
+    db: Session = Depends(get_db)
+):
+    """
+    Updates the authenticated patient's push notification enable/disable preference.
+    """
+    patient_id = get_verified_patient_id(current_user, db)
+
+    regs = db.execute(
+        select(PushDeviceRegistration).where(
+            PushDeviceRegistration.patient_id == patient_id
+        )
+    ).scalars().all()
+
+    for r in regs:
+        r.push_enabled = req.push_enabled
+
+    db.commit()
+
+    log_audit_event(
+        db=db,
+        event_type="PUSH_PREFERENCES_UPDATED",
+        actor_id=current_user.id,
+        actor_role=current_user.role.value,
+        resource="push_device_registration",
+        details={"push_enabled": req.push_enabled},
+        patient_id=patient_id
+    )
+
+    return {
+        "status": "SUCCESS",
+        "push_enabled": req.push_enabled,
+        "message": f"Push notification preference updated to {'enabled' if req.push_enabled else 'disabled'}."
+    }
+

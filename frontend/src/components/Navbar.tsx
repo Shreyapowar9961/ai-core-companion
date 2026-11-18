@@ -4,9 +4,10 @@ import { HeartPulse, PhoneCall, ShieldCheck, LogOut, Building2 } from 'lucide-re
 
 interface NavbarProps {
   onOpenCallSimulator: () => void;
+  onOpenIntegrationModal?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator, onOpenIntegrationModal }) => {
   const { currentUser, logout } = useAuth();
 
   if (!currentUser) return null;
@@ -41,6 +42,18 @@ export const Navbar: React.FC<NavbarProps> = ({ onOpenCallSimulator }) => {
             <PhoneCall className="w-3.5 h-3.5" />
             <span>Simulate Voice Call</span>
           </button>
+
+          {/* Carrier Integrations Status Pill (₹0 Simulation Mode) */}
+          {onOpenIntegrationModal && (
+            <button
+              onClick={onOpenIntegrationModal}
+              className="hidden lg:inline-flex items-center space-x-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 text-xs font-semibold px-3 py-2 rounded-xl transition-colors shadow-2xs"
+              title="Carrier Delivery Integration Prerequisites"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+              <span>Carrier Integrations</span>
+            </button>
+          )}
 
           {/* Trusted RBAC Role Badge (DB-05) */}
           <div className="flex items-center gap-2">

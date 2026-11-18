@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, desc, and_
-from typing import List, Dict, Any
-from datetime import datetime, date, timedelta
+from typing import List, Dict, Any, Optional, Tuple
+from datetime import datetime, date, time, timedelta
 
 from app.core.database import get_db
 from app.core.security import get_current_user, AuthUser, UserRole, require_roles, verify_patient_access
@@ -15,7 +15,212 @@ from app.models.progress import DailyProgressScore
 from app.models.monitoring import CheckinTask, PatientFeedback, CommunicationLog
 from app.models.prescription import PrescriptionUpload
 
+import re
+
 router = APIRouter(prefix="/dashboard", tags=["Care-Team Clinical Dashboard"])
+
+def is_prn_schedule(sched: MedicationSchedule) -> bool:
+    """
+    Phase 1.1: Checks if a medication schedule is PRN (as-needed / pro re nata).
+    PRN medications are taken conditionally based on symptoms and do not represent
+    a fixed daily expected dose. They are excluded from the fixed-dose adherence
+    denominator per clinical CDSS standards (MD-01 / ES-01).
+    """
+    text_to_check = f"{sched.frequency or ''} {sched.instructions or ''}".lower()
+    return bool(re.search(r'\b(prn|as needed|as-needed|sos|when required|if needed|stat)\b', text_to_check))
+
+
+def parse_schedule_dose_times(sched: MedicationSchedule) -> List[time]:
+    """
+    Parses dose_times list from MedicationSchedule into Python time objects.
+    Falls back to common clinical frequencies (Once daily, Twice daily/BD, TDS, QID, HS)
+    if dose_times is empty or unpopulated.
+    """
+    parsed: List[time] = []
+    if sched.dose_times and isinstance(sched.dose_times, list):
+        for item in sched.dose_times:
+            if isinstance(item, time):
+                parsed.append(item)
+            elif isinstance(item, str):
+                s = item.strip()
+                parts = s.split(":")
+                if len(parts) >= 2:
+                    try:
+                        h = int(parts[0])
+                        m = int(parts[1])
+                        sec = int(parts[2]) if len(parts) > 2 else 0
+                        parsed.append(time(h, m, sec))
+                    except ValueError:
+                        pass
+    if parsed:
+        return parsed
+
+    freq = (sched.frequency or "").lower()
+    if any(k in freq for k in ["twice", "bd", "bid", "1-0-1", "1 - 0 - 1"]):
+        return [time(9, 0), time(21, 0)]
+    elif any(k in freq for k in ["thrice", "tds", "tid", "1-1-1", "1 - 1 - 1"]):
+        return [time(9, 0), time(14, 0), time(21, 0)]
+    elif any(k in freq for k in ["four", "qid", "1-1-1-1"]):
+        return [time(6, 0), time(12, 0), time(18, 0), time(22, 0)]
+    elif any(k in freq for k in ["bedtime", "night", "hs", "0-0-1"]):
+        return [time(21, 0)]
+    else:
+        return [time(9, 0)]
+
+
+def is_dose_expected_on_date(sched: MedicationSchedule, cur_date: date) -> Tuple[bool, bool]:
+    """
+    Phase 1.1: Determines if a schedule expects a dose on cur_date.
+    Returns: (is_expected: bool, is_supported: bool)
+
+    - Daily & Multi-dose daily: Supported.
+    - Alternate-day: Supported when effective_start_date provides the cadence anchor.
+    - Weekly: Supported when effective_start_date provides the weekday anchor.
+    - PRN / As-needed: Excluded from fixed denominator (returns False, True).
+    - Ambiguous / Unsupported: Returns (False, False) without guessing.
+    """
+    # Boundary checks on start and end dates
+    if sched.effective_start_date and cur_date < sched.effective_start_date:
+        return False, True
+    if sched.effective_end_date and cur_date > sched.effective_end_date:
+        return False, True
+    if not sched.is_active:
+        if sched.effective_end_date is None or cur_date > sched.effective_end_date:
+            return False, True
+
+    # 1. PRN / As-needed: excluded from fixed denominator
+    if is_prn_schedule(sched):
+        return False, True
+
+    freq = (sched.frequency or "").lower()
+
+    # 2. Alternate-day schedules
+    if any(k in freq for k in ["alternate", "every other day", "q2d", "every 2 days"]):
+        if not sched.effective_start_date:
+            # Ambiguous: missing anchor date
+            return False, False
+        day_offset = (cur_date - sched.effective_start_date).days
+        return (day_offset % 2 == 0), True
+
+    # 3. Weekly schedules
+    if any(k in freq for k in ["weekly", "once a week", "qweek", "every week"]):
+        if not sched.effective_start_date:
+            # Ambiguous: missing anchor date
+            return False, False
+        return (cur_date.weekday() == sched.effective_start_date.weekday()), True
+
+    # 4. Standard daily frequencies
+    daily_keywords = [
+        "daily", "once", "twice", "bd", "bid", "1-0-1", "thrice", "tds", "tid",
+        "1-1-1", "four", "qid", "1-1-1-1", "bedtime", "night", "hs", "morning",
+        "od", "1-0-0", "0-1-0", "0-0-1"
+    ]
+    if any(k in freq for k in daily_keywords) or not freq:
+        return True, True
+
+    # Explicit dose_times list is treated as daily
+    if sched.dose_times and isinstance(sched.dose_times, list) and len(sched.dose_times) > 0:
+        return True, True
+
+    # 5. Unsupported / Ambiguous cadence: Excluded safely without silent assumptions
+    return False, False
+
+
+def calculate_patient_7d_adherence(
+    db: Session,
+    patient_id: str,
+    now: Optional[datetime] = None
+) -> float:
+    """
+    Phase 1.1 Correctness Hardening:
+    Calculates medication adherence percentage over the previous seven days using
+    distinct expected dose occurrence matching.
+
+    - Numerator: distinct expected dose occurrences fulfilled by a valid TAKEN log.
+    - Denominator: total distinct expected dose occurrences across valid active schedules.
+    - Idempotency & De-duplication: multiple TAKEN logs for the same dose slot only count once.
+      Duplicate logs CANNOT inflate the adherence percentage or mask missed doses.
+    - Orphan, ad-hoc, and logs from inactive/unincluded schedules are strictly excluded.
+    - Supports daily, multi-dose, alternate-day, and weekly schedules with explicit anchor dates.
+    - Excludes PRN / as-needed medications from the fixed expected-dose denominator.
+    - Excludes ambiguous / unsupported frequencies safely and preserves consistent 7-day boundaries.
+    """
+    ref_now = now or datetime.utcnow()
+    window_start = ref_now - timedelta(days=7)
+    window_end = ref_now
+
+    # 1. Fetch all schedules for this patient
+    stmt = select(MedicationSchedule).where(MedicationSchedule.patient_id == patient_id)
+    schedules = db.execute(stmt).scalars().all()
+
+    # 2. Build discrete expected dose occurrences
+    # Key: (schedule_id, expected_datetime) -> fulfilled: bool
+    expected_slots: Dict[Tuple[str, datetime], bool] = {}
+    valid_schedule_ids = set()
+
+    cur_date = window_start.date()
+    end_date = window_end.date()
+
+    while cur_date <= end_date:
+        for sched in schedules:
+            is_expected, is_supported = is_dose_expected_on_date(sched, cur_date)
+            if not is_supported or not is_expected:
+                continue
+
+            valid_schedule_ids.add(sched.id)
+            dose_times = parse_schedule_dose_times(sched)
+            for t in dose_times:
+                dose_dt = datetime.combine(cur_date, t)
+                if window_start <= dose_dt <= window_end:
+                    expected_slots[(sched.id, dose_dt)] = False
+
+        cur_date += timedelta(days=1)
+
+    total_expected = len(expected_slots)
+    if total_expected == 0:
+        return 100.0
+
+    # 3. Fetch TAKEN logs linked to valid included schedules within the window
+    taken_stmt = select(MedicationLog).where(
+        MedicationLog.patient_id == patient_id,
+        MedicationLog.status == "TAKEN",
+        MedicationLog.scheduled_time >= window_start - timedelta(hours=3),
+        MedicationLog.scheduled_time <= window_end + timedelta(hours=3),
+        MedicationLog.medication_schedule_id.in_(valid_schedule_ids)
+    ).order_by(MedicationLog.scheduled_time)
+    taken_logs = db.execute(taken_stmt).scalars().all()
+
+    # 4. Match TAKEN logs to distinct expected dose slots
+    # Each expected slot can be fulfilled at most ONCE.
+    for log in taken_logs:
+        sched_id = log.medication_schedule_id
+        log_time = log.scheduled_time
+
+        # Exact timestamp match first
+        exact_key = (sched_id, log_time)
+        if exact_key in expected_slots and not expected_slots[exact_key]:
+            expected_slots[exact_key] = True
+            continue
+
+        # Proximity match: find closest unfulfilled slot for this schedule on same date (within 3 hours)
+        best_slot = None
+        min_diff = None
+        for (s_id, slot_dt), fulfilled in expected_slots.items():
+            if s_id == sched_id and not fulfilled and slot_dt.date() == log_time.date():
+                diff = abs((slot_dt - log_time).total_seconds())
+                if diff <= 3 * 3600:
+                    if min_diff is None or diff < min_diff:
+                        min_diff = diff
+                        best_slot = (s_id, slot_dt)
+
+        if best_slot:
+            expected_slots[best_slot] = True
+
+    # 5. Compute adherence percentage
+    fulfilled_count = sum(1 for fulfilled in expected_slots.values() if fulfilled)
+    adherence_pct = round((fulfilled_count / total_expected) * 100.0, 1)
+    return min(100.0, max(0.0, adherence_pct))
+
 
 @router.get("/summary")
 @router.get("/metrics")
@@ -49,10 +254,17 @@ def get_dashboard_summary(
     today_start = datetime.combine(date.today(), datetime.min.time())
     today_meds_stmt = select(MedicationLog).where(MedicationLog.scheduled_time >= today_start)
     today_meds = db.execute(today_meds_stmt).scalars().all()
-    adherence_rate = 100.0
-    if today_meds:
+    
+    # Calculate 7-day cohort adherence consistent with priority queue
+    active_cohort = [p for p in patients if p.status == "ACTIVE"]
+    if active_cohort:
+        cohort_adherences = [calculate_patient_7d_adherence(db, p.id) for p in active_cohort]
+        adherence_rate = round(sum(cohort_adherences) / len(cohort_adherences), 1)
+    elif today_meds:
         taken = sum(1 for m in today_meds if m.status == "TAKEN")
         adherence_rate = round((taken / len(today_meds)) * 100.0, 1)
+    else:
+        adherence_rate = None
 
     next_48h = datetime.utcnow() + timedelta(hours=48)
     appt_stmt = select(Appointment).where(
@@ -262,7 +474,7 @@ def get_priority_patients(
                 "reasons": reasons,
                 "inclusion_reasons": reasons,
                 "open_alerts_count": len(alerts),
-                "medication_adherence_7d": 85.0,
+                "medication_adherence_7d": calculate_patient_7d_adherence(db, p.id),
                 "last_call_disposition": "COMPLETED",
                 "last_call_time": None,
                 "latest_alert": alerts[0].title if alerts else None,

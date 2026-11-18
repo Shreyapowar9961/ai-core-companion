@@ -182,8 +182,50 @@ export const apiClient = {
       body: JSON.stringify({ session_id: sessionId }),
     }),
 
+  recordCallDisposition: (token: string | null | undefined, sessionId: string, disposition: string, isSimulation: boolean = false, notes?: string) =>
+    fetchWithAuth<any>(`/conversation/sessions/${sessionId}/disposition`, token, {
+      method: 'POST',
+      body: JSON.stringify({ disposition, is_simulation: isSimulation, notes }),
+    }),
+
   getPatientCalls: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<CallSession[]>(`/conversation/patient/${patientId}/calls`, token),
+
+  // CV-08: Call Audio Recording Upload & Stream
+  uploadCallAudio: async (token: string | null | undefined, sessionId: string, audioBlob: Blob) => {
+    const formData = new FormData();
+    formData.append('audio_file', audioBlob, `call_${sessionId}.webm`);
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${API_BASE}/conversation/sessions/${sessionId}/audio`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Failed to upload audio' }));
+      throw new Error(err.detail || 'Audio upload failed');
+    }
+    return await res.json();
+  },
+
+  getCallAudioStreamUrl: (sessionId: string) => {
+    return `${API_BASE}/conversation/sessions/${sessionId}/audio/stream`;
+  },
+
+  // ON-07: HL7 FHIR R4 Hospital Ingestion
+  previewFhirImport: (token: string | null | undefined, bundleData: any) =>
+    fetchWithAuth<any>(`/patients/import/fhir/preview`, token, {
+      method: 'POST',
+      body: JSON.stringify(bundleData),
+    }),
+
+  importFhirPatient: (token: string | null | undefined, bundleData: any, checkDuplicates: boolean = true, activate: boolean = true) =>
+    fetchWithAuth<any>(`/patients/import/fhir?check_duplicates=${checkDuplicates}&activate=${activate}`, token, {
+      method: 'POST',
+      body: JSON.stringify(bundleData),
+    }),
 
   // Rules Engine
   getRules: (token?: string | null) =>
@@ -276,6 +318,19 @@ export const apiClient = {
   getPortalNotifications: (token?: string | null) =>
     fetchWithAuth<CommunicationLog[]>(`/portal/notifications`, token),
 
+  getPortalUnreadNotificationCount: (token?: string | null) =>
+    fetchWithAuth<{ unread_count: number }>(`/portal/notifications/unread-count`, token),
+
+  markPortalNotificationRead: (token: string | null | undefined, notificationId: string) =>
+    fetchWithAuth<CommunicationLog>(`/portal/notifications/${notificationId}/read`, token, {
+      method: 'PUT',
+    }),
+
+  markAllPortalNotificationsRead: (token: string | null | undefined) =>
+    fetchWithAuth<{ marked_read_count: number; status: string }>(`/portal/notifications/mark-all-read`, token, {
+      method: 'PUT',
+    }),
+
   getPortalCommunications: (token?: string | null) =>
     fetchWithAuth<CommunicationLog[]>(`/portal/communications`, token),
 
@@ -358,4 +413,32 @@ export const apiClient = {
 
   getPatientFeedback: (token: string | null | undefined, patientId: string) =>
     fetchWithAuth<PatientFeedback[]>(`/monitoring/feedback/patient/${patientId}`, token),
+
+  // Feature H: Firebase Cloud Messaging (FCM) Web Push
+  registerDeviceToken: (token: string | null | undefined, data: { fcm_token: string; device_type?: string; user_agent?: string }) =>
+    fetchWithAuth<{ status: string; registration_id: string; is_active: boolean }>(`/portal/notifications/device-token`, token, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  unregisterDeviceToken: (token: string | null | undefined, fcm_token?: string) =>
+    fetchWithAuth<{ status: string; deactivated_count: number }>(`/portal/notifications/device-token`, token, {
+      method: 'DELETE',
+      body: JSON.stringify({ fcm_token }),
+    }),
+
+  getNotificationPreferences: (token: string | null | undefined) =>
+    fetchWithAuth<{
+      push_enabled: boolean;
+      has_registered_device: boolean;
+      active_devices_count: number;
+      registered_at: string | null;
+      last_sent_at: string | null;
+    }>(`/portal/notifications/preferences`, token),
+
+  updateNotificationPreferences: (token: string | null | undefined, push_enabled: boolean) =>
+    fetchWithAuth<{ status: string; push_enabled: boolean }>(`/portal/notifications/preferences`, token, {
+      method: 'PUT',
+      body: JSON.stringify({ push_enabled }),
+    }),
 };

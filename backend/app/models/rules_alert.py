@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, JSON, ForeignKey, Text
+from sqlalchemy import Column, String, Integer, Float, Boolean, DateTime, JSON, ForeignKey, Text, Index, text
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -70,6 +70,16 @@ class Alert(Base):
     
     patient = relationship("Patient", back_populates="alerts")
     action_logs = relationship("AlertActionLog", back_populates="alert", cascade="all, delete-orphan", order_by="AlertActionLog.created_at")
+
+    __table_args__ = (
+        Index(
+            "uq_active_alerts_patient_rule",
+            "patient_id",
+            "rule_code",
+            unique=True,
+            postgresql_where=text("status IN ('OPEN', 'ACKNOWLEDGED', 'ESCALATED')"),
+        ),
+    )
 
 class AlertActionLog(Base):
     __tablename__ = "alert_action_logs"

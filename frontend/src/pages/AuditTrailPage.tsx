@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { apiClient } from '../api/client';
 import { PatientJourney } from '../types';
@@ -11,32 +11,54 @@ import {
   Heart,
   Pill,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Users
 } from 'lucide-react';
 
 export const AuditTrailPage: React.FC = () => {
   const { token } = useAuth();
-  const [patientIdInput, setPatientIdInput] = useState('patient-apex-101');
+  const [patients, setPatients] = useState<Array<{ id: string; name: string }>>([]);
+  const [patientIdInput, setPatientIdInput] = useState('');
   const [journey, setJourney] = useState<PatientJourney | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const handleReconstructJourney = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!patientIdInput.trim()) return;
+  useEffect(() => {
+    if (!token) return;
+    apiClient.getPatients(token)
+      .then((data) => {
+        if (data && data.length > 0) {
+          const mapped = data.map((p) => ({
+            id: p.id,
+            name: `${p.first_name} ${p.last_name}`.trim()
+          }));
+          setPatients(mapped);
+          setPatientIdInput(mapped[0].id);
+          loadJourney(mapped[0].id);
+        }
+      })
+      .catch((err) => console.warn('Could not fetch patients for audit trail:', err.message));
+  }, [token]);
 
+  const loadJourney = async (pid: string) => {
+    if (!pid.trim()) return;
     setIsLoading(true);
     setErrorMessage(null);
     setJourney(null);
 
     try {
-      const data = await apiClient.getPatientJourney(token, patientIdInput.trim());
+      const data = await apiClient.getPatientJourney(token, pid.trim());
       setJourney(data);
     } catch (err: any) {
-      setErrorMessage(err.message || `No audit journey records found for patient ${patientIdInput}.`);
+      setErrorMessage(err.message || `No audit journey records found for patient ${pid}.`);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleReconstructJourney = (e: React.FormEvent) => {
+    e.preventDefault();
+    loadJourney(patientIdInput);
   };
 
   const getEventIcon = (type: string) => {
@@ -59,7 +81,6 @@ export const AuditTrailPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -69,26 +90,49 @@ export const AuditTrailPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Patient ID Search Input */}
-        <form onSubmit={handleReconstructJourney} className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Enter Patient ID (e.g., patient-apex-101)..."
-              value={patientIdInput}
-              onChange={(e) => setPatientIdInput(e.target.value)}
-              className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-xl text-xs w-64 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-colors disabled:bg-slate-300"
-          >
-            {isLoading ? 'Fetching...' : 'Reconstruct'}
-          </button>
-        </form>
+        {/* Patient Selection & Search */}
+        <div className="flex flex-wrap items-center gap-2">
+          {patients.length > 0 && (
+            <div className="flex items-center space-x-1.5">
+              <Users className="w-4 h-4 text-slate-400" />
+              <select
+                value={patientIdInput}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setPatientIdInput(val);
+                  loadJourney(val);
+                }}
+                className="border border-slate-300 rounded-xl px-3 py-1.5 text-xs text-slate-800 bg-white font-medium"
+              >
+                {patients.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({p.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <form onSubmit={handleReconstructJourney} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Enter Patient ID (e.g. PAT-101)..."
+                value={patientIdInput}
+                onChange={(e) => setPatientIdInput(e.target.value)}
+                className="pl-9 pr-3 py-1.5 border border-slate-300 rounded-xl text-xs w-56 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-colors disabled:bg-slate-300"
+            >
+              {isLoading ? 'Fetching...' : 'Reconstruct'}
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Error Message */}
@@ -110,7 +154,7 @@ export const AuditTrailPage: React.FC = () => {
           <div className="p-12 text-center text-slate-500 text-xs">
             <History className="w-8 h-8 text-slate-400 mx-auto mb-2" />
             <p className="font-semibold text-slate-700 text-sm">No Patient Selected</p>
-            <p className="mt-1 text-slate-400">Enter a valid patient ID above to reconstruct their end-to-end recovery audit log.</p>
+            <p className="mt-1 text-slate-400">Select or enter a valid patient ID above to reconstruct their end-to-end recovery audit log.</p>
           </div>
         ) : journey.events.length === 0 ? (
           <div className="p-12 text-center text-slate-500 text-xs">
@@ -158,7 +202,6 @@ export const AuditTrailPage: React.FC = () => {
           </div>
         )}
       </div>
-
     </div>
   );
 };

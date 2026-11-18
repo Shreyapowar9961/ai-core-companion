@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timedelta, date
 from unittest.mock import MagicMock
+from contextlib import contextmanager
 from sqlalchemy.orm import Session
 from app.models.patient import Patient
 from app.models.clinical import SymptomCheckin, MedicationLog, VitalsThreshold
@@ -38,6 +39,10 @@ class MockPostgresSession:
 
     def refresh(self, obj):
         pass
+
+    @contextmanager
+    def begin_nested(self):
+        yield self
 
     def get(self, model, ident):
         return None

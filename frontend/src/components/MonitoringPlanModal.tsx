@@ -236,7 +236,7 @@ export const MonitoringPlanModal: React.FC<MonitoringPlanModalProps> = ({
           {/* Trigger Cycle Button */}
           <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between">
             <div>
-              <span className="text-xs font-bold text-slate-800 block">Demonstration Trigger</span>
+              <span className="text-xs font-bold text-slate-800 block">Manual Scheduler Trigger</span>
               <span className="text-[10px] text-slate-500">Run an instant scheduler cycle to generate tasks now.</span>
             </div>
             <button

@@ -181,9 +181,17 @@ export const DashboardPage: React.FC<DashboardPageProps> = ({ onOpenCallSimulato
             </div>
           </div>
           <p className={`text-2xl font-bold mt-2 ${
-            (metrics?.overall_adherence_rate ?? 100) < 75 ? 'text-rose-600' : 'text-emerald-700'
+            (metrics?.assigned_patient_count === 0 || metrics?.overall_adherence_rate === null || metrics?.overall_adherence_rate === undefined)
+              ? 'text-slate-500'
+              : (metrics.overall_adherence_rate < 75)
+              ? 'text-rose-600'
+              : 'text-emerald-700'
           }`}>
-            {isLoadingMetrics ? '...' : `${metrics?.overall_adherence_rate ?? 100}%`}
+            {isLoadingMetrics
+              ? '...'
+              : (metrics?.assigned_patient_count === 0 || metrics?.overall_adherence_rate === null || metrics?.overall_adherence_rate === undefined)
+              ? 'N/A'
+              : `${metrics.overall_adherence_rate}%`}
           </p>
           <p className="text-[11px] text-slate-400 mt-1">Confirmed taken vs scheduled doses</p>
         </div>

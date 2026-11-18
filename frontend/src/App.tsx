@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { Navbar } from './components/Navbar';
 import { Sidebar } from './components/Sidebar';
 import { CallSimulatorModal } from './components/CallSimulatorModal';
+import { ExternalIntegrationRequiredModal } from './components/ExternalIntegrationRequiredModal';
 
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
@@ -18,9 +19,14 @@ import { PatientPortalPage } from './pages/PatientPortalPage';
 import { HeartPulse } from 'lucide-react';
 
 // Protected Route Guard
-const ProtectedLayout: React.FC<{ children: React.ReactNode; onOpenCallSimulator: () => void }> = ({
+const ProtectedLayout: React.FC<{
+  children: React.ReactNode;
+  onOpenCallSimulator: () => void;
+  onOpenIntegrationModal: () => void;
+}> = ({
   children,
-  onOpenCallSimulator
+  onOpenCallSimulator,
+  onOpenIntegrationModal
 }) => {
   const { currentUser, isLoading } = useAuth();
   const location = useLocation();
@@ -50,7 +56,10 @@ const ProtectedLayout: React.FC<{ children: React.ReactNode; onOpenCallSimulator
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
       {/* Top Navigation */}
-      <Navbar onOpenCallSimulator={onOpenCallSimulator} />
+      <Navbar
+        onOpenCallSimulator={onOpenCallSimulator}
+        onOpenIntegrationModal={onOpenIntegrationModal}
+      />
 
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar */}
@@ -87,6 +96,7 @@ const LoginRoute: React.FC = () => {
 
 export const App: React.FC = () => {
   const [isSimulatorOpen, setIsSimulatorOpen] = useState(false);
+  const [isIntegrationModalOpen, setIsIntegrationModalOpen] = useState(false);
 
   return (
     <AuthProvider>
@@ -99,7 +109,10 @@ export const App: React.FC = () => {
           <Route
             path="/*"
             element={
-              <ProtectedLayout onOpenCallSimulator={() => setIsSimulatorOpen(true)}>
+              <ProtectedLayout
+                onOpenCallSimulator={() => setIsSimulatorOpen(true)}
+                onOpenIntegrationModal={() => setIsIntegrationModalOpen(true)}
+              >
                 <Routes>
                   <Route path="/" element={<DashboardPage onOpenCallSimulator={() => setIsSimulatorOpen(true)} />} />
                   <Route path="/patients" element={<DashboardPage onOpenCallSimulator={() => setIsSimulatorOpen(true)} />} />
@@ -122,6 +135,12 @@ export const App: React.FC = () => {
         <CallSimulatorModal
           isOpen={isSimulatorOpen}
           onClose={() => setIsSimulatorOpen(false)}
+        />
+
+        {/* External Carrier Service Integration Modal */}
+        <ExternalIntegrationRequiredModal
+          isOpen={isIntegrationModalOpen}
+          onClose={() => setIsIntegrationModalOpen(false)}
         />
       </BrowserRouter>
     </AuthProvider>

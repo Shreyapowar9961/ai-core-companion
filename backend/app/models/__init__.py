@@ -16,6 +16,7 @@ from app.models.progress import DailyProgressScore, PatientSummary
 from app.models.audit import AuditLog, ConfigAuditLog
 from app.models.monitoring import MonitoringPlan, CheckinTask, CommunicationLog, PatientFeedback
 from app.models.prescription import PrescriptionUpload
+from app.models.device_token import PushDeviceRegistration
 
 __all__ = [
     "Facility",
@@ -47,5 +48,6 @@ __all__ = [
     "CheckinTask",
     "CommunicationLog",
     "PatientFeedback",
-    "PrescriptionUpload"
+    "PrescriptionUpload",
+    "PushDeviceRegistration"
 ]

@@ -106,6 +106,66 @@ class LanguageService:
             "en": "Congratulations {name}! You have successfully completed your {programme_days}-day recovery programme. Your care team commends your commitment to recovery. Stay healthy!",
             "hi": "बधाई हो {name} जी! आपने अपना {programme_days} दिनों का रिकवरी कार्यक्रम सफलतापूर्वक पूरा कर लिया है। आपकी केयर टीम आपके स्वास्थ्य और सुधार की सराहना करती है। स्वस्थ रहें!",
             "mr": "अभिनंदन {name} जी! तुम्ही तुमचा {programme_days} दिवसांचा रिकव्हरी कार्यक्रम यशस्वीरीत्या पूर्ण केला आहे. तुमच्या काळजीवाहू टीमला तुमच्या प्रगतीचा अभिमान आहे. नेहमी निरोगी राहा!"
+        },
+        "IDENTITY_CLARIFICATION": {
+            "en": "Hello! This is your AI Care Companion calling for {name}. To protect your privacy, could you confirm if you are {name}?",
+            "hi": "नमस्ते! मैं {name} जी के लिए AI केयर साथी से कॉल कर रहा हूँ। आपकी सुरक्षा के लिए, क्या आप पुष्टि कर सकते हैं कि क्या आप {name} जी हैं?",
+            "mr": "नमस्कार! मी {name} यांच्यासाठी AI केअर सोबती कडून कॉल केला आहे. आपल्या गोपनीयतेसाठी, कृपया पुष्टी कराल का की आपण {name} आहात?"
+        },
+        "WELLBEING_ACK_PAIN_PROMPT": {
+            "en": "Thank you for sharing that. Are you experiencing any pain today? If yes, on a scale of 0 to 10, how would you rate it?",
+            "hi": "बताने के लिए धन्यवाद। क्या आज आपको कोई दर्द या तकलीफ महसूस हो रही है? यदि हाँ, तो 0 से 10 के पैमाने पर आप इसे कितना बताएँगे?",
+            "mr": "सांगितल्याबद्दल धन्यवाद. आज तुम्हाला कुठेही वेदना किंवा दुखणे जाणवत आहे का? असल्यास, 0 ते 10 च्या प्रमाणात किती त्रास आहे?"
+        },
+        "MEDICATION_TAKEN_ACK": {
+            "en": "Great, I have recorded your dose of {medicine_name} as taken.",
+            "hi": "बहुत अच्छा, मैंने दर्ज कर लिया है कि आपने अपनी {medicine_name} दवा ले ली है।",
+            "mr": "खूप छान, मी नोंद केली आहे की तुम्ही तुमची {medicine_name} ही गोळी घेतली आहे."
+        },
+        "MEDICATION_MISSED_ACK": {
+            "en": "I have noted that you missed {medicine_name}. Please do not take an extra dose without consulting your doctor.",
+            "hi": "मैंने दर्ज कर लिया है कि आपकी {medicine_name} छूट गई है। कृपया डॉक्टर से पूछे बिना अतिरिक्त खुराक न लें।",
+            "mr": "मी नोंद केली आहे की तुमची {medicine_name} औषध चुकले आहे. कृपया डॉक्टरांच्या सल्ल्याशिवाय दुप्पट मात्रा घेऊ नका."
+        },
+        "MEDICATION_DEFERRED_ACK": {
+            "en": "Understood. I will reschedule a reminder for your medication in 30 minutes.",
+            "hi": "समझ गया। मैं 30 मिनट में आपकी दवा के लिए दोबारा याद दिलाऊँगा।",
+            "mr": "समजले. मी 30 मिनिटांनंतर तुम्हाला औषधाची पुन्हा आठवण करून देईन."
+        },
+        "MEDICATION_UNCLEAR_ACK": {
+            "en": "I have noted that. Let us continue with your hydration and recovery check.",
+            "hi": "मैंने इसे दर्ज कर लिया है। आइए अब आपके पानी पीने और सेहत की स्थिति की बात करते हैं।",
+            "mr": "मी नोंद करून घेतली आहे. चला आता आपण पाणी पिणे आणि आरोग्याबद्दल पुढील माहिती घेऊया."
+        },
+        "LIFESTYLE_HYDRATION_PROMPT": {
+            "en": "Have you been drinking water regularly today? Are you able to drink water at your scheduled intervals?",
+            "hi": "क्या आज आप नियमित रूप से पर्याप्त पानी पी रहे हैं? क्या आप समय पर पानी पी पा रहे हैं?",
+            "mr": "तुम्ही आज वेळेवर आणि पुरेसे पाणी पीत आहात का? योग्य अंतराने पाणी पिणे शक्य होत आहे का?"
+        },
+        "APPOINTMENT_PROMPT": {
+            "en": "You have an upcoming appointment for {appointment_type} with {facility} on {time_str}. Will you be able to attend?",
+            "hi": "आपका {facility} में {time_str} को {appointment_type} का अपॉइंटमेंट निर्धारित है। क्या आप इसमें शामिल हो पाएँगे?",
+            "mr": "तुमची {facility} येथे {time_str} रोजी {appointment_type} साठी नियोजित भेट आहे. आपण उपस्थित राहू शकाल का?"
+        },
+        "APPOINTMENT_CONFIRMED": {
+            "en": "Thank you, your appointment attendance is confirmed.",
+            "hi": "धन्यवाद, आपकी अपॉइंटमेंट की उपस्थिति की पुष्टि हो गई है।",
+            "mr": "धन्यवाद, आपल्या भेटीची उपस्थिती निश्चित झाली आहे."
+        },
+        "APPOINTMENT_RESCHEDULE": {
+            "en": "I have raised a rescheduling task for your care team. They will contact you with alternate times.",
+            "hi": "मैंने आपकी केयर टीम को समय बदलने का अनुरोध भेज दिया है। वे नए समय के साथ आपसे संपर्क करेंगे।",
+            "mr": "मी आपल्या केअर टीमला वेळ बदलण्याची विनंती पाठवली आहे. ते नव्या वेळेसह आपल्याशी संपर्क साधतील."
+        },
+        "APPOINTMENT_DECLINED": {
+            "en": "I have noted that you cannot attend. Please ensure you reschedule as follow-ups are important.",
+            "hi": "मैंने दर्ज कर लिया है कि आप उपस्थित नहीं हो पाएँगे। कृपया जल्द नया समय अवश्य लें क्योंकि फॉलो-अप आवश्यक है।",
+            "mr": "मी नोंद केली आहे की आपण उपस्थित राहू शकणार नाही. कृपया नंतरची वेळ नक्की घ्या कारण तपासणी महत्त्वाची आहे."
+        },
+        "WRAP_UP_COMPLETE": {
+            "en": "Thank you for completing your daily recovery check-in, {name}. Your care team has received your updates. Rest well and stay healthy. Goodbye!",
+            "hi": "अपनी दैनिक रिकवरी जाँच पूरी करने के लिए धन्यवाद, {name} जी। आपकी केयर टीम को आपकी सभी जानकारियाँ मिल गई हैं। आराम करें और स्वस्थ रहें। नमस्ते!",
+            "mr": "आपली दैनंदिन रिकव्हरी तपासणी पूर्ण केल्याबद्दल मनःपूर्वक धन्यवाद, {name} जी. डॉक्टरांच्या टीमला आपली सर्व माहिती पोहोचली आहे. विश्रांती घ्या आणि निरोगी राहा. नमस्कार!"
         }
     }
 

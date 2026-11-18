@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, date
 from sqlalchemy import Column, String, Integer, Float, Boolean, Date, DateTime, JSON, ForeignKey, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, backref
 from app.core.database import Base
 
 def gen_uuid():
@@ -28,7 +28,7 @@ class MonitoringPlan(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    patient = relationship("Patient", backref="monitoring_plans")
+    patient = relationship("Patient", backref=backref("monitoring_plans", cascade="all, delete-orphan"))
     tasks = relationship("CheckinTask", back_populates="plan", cascade="all, delete-orphan")
 
 
@@ -56,7 +56,7 @@ class CheckinTask(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     plan = relationship("MonitoringPlan", back_populates="tasks")
-    patient = relationship("Patient", backref="checkin_tasks")
+    patient = relationship("Patient", backref=backref("checkin_tasks", cascade="all, delete-orphan"))
 
 
 class CommunicationLog(Base):
@@ -85,7 +85,7 @@ class CommunicationLog(Base):
     viewed_at = Column(DateTime, nullable=True)
     responded_at = Column(DateTime, nullable=True)
 
-    patient = relationship("Patient", backref="communication_logs")
+    patient = relationship("Patient", backref=backref("communication_logs", cascade="all, delete-orphan"))
 
 
 class PatientFeedback(Base):
@@ -103,4 +103,4 @@ class PatientFeedback(Base):
     comments = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
-    patient = relationship("Patient", backref="feedbacks")
+    patient = relationship("Patient", backref=backref("feedbacks", cascade="all, delete-orphan"))

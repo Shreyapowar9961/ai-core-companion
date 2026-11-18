@@ -9,10 +9,31 @@ from app.core.database import SessionLocal
 from app.models.patient import Patient
 from app.models.clinical import MedicationSchedule, MedicationLog
 from app.models.monitoring import MonitoringPlan, CheckinTask, CommunicationLog
+from app.models.conversation import CallSession
 from app.models.rules_alert import Alert
+from app.services.rules_engine import RulesEngine
+from app.services.fcm_service import fcm_service
 from app.core.audit import log_audit_event
 
 logger = logging.getLogger("monitoring-scheduler")
+
+def format_checkin_notification(patient: Patient) -> str:
+    lang = getattr(patient, "preferred_language", "en") or "en"
+    if lang == "hi":
+        return f"Apex Heart Institute: Namaste {patient.first_name}. Aapka dainik recovery check-in taiyar hai. Kripya apne patient portal me aaj ke vitals aur lakshan darj karein."
+    elif lang == "mr":
+        return f"Apex Heart Institute: Namaskar {patient.first_name}. Tumcha dainik recovery check-in tayar ahe. Krupaya patient portal madhe aajche vitals ani lakshane nondva."
+    return f"Apex Heart Institute: Namaste {patient.first_name}. Your scheduled recovery check-in is now ready. Please open your patient portal to report today's vitals and symptoms."
+
+def format_medication_reminder(patient: Patient, med: MedicationSchedule) -> str:
+    lang = getattr(patient, "preferred_language", "en") or "en"
+    if lang == "hi":
+        instr = med.instructions or "Paani ke saath lein"
+        return f"Dawa Reminder: {med.medicine_name} ({med.dosage}) lene ka samay ho gaya hai. Nirdesh: {instr}. Kripya portal par pushti karein."
+    elif lang == "mr":
+        instr = med.instructions or "Panyasobat ghya"
+        return f"Aushadh Reminder: {med.medicine_name} ({med.dosage}) ghenyachi vel zali ahe. Suchana: {instr}. Krupaya portal var nondva."
+    return f"Medication Reminder: Time to take your {med.medicine_name} ({med.dosage}). Instructions: {med.instructions or 'Take with water'}. Please confirm in your portal."
 
 class BackgroundMonitoringScheduler:
     """
@@ -116,11 +137,17 @@ class BackgroundMonitoringScheduler:
                         channel=sim_channel,
                         message_type="RECOVERY_CHECKIN",
                         recipient_phone=patient.phone,
-                        content=f"Apex Heart Institute: Namaste {patient.first_name}. Your scheduled recovery check-in is now ready. Please open your patient portal to report today's vitals and symptoms.",
+                        content=format_checkin_notification(patient),
                         status="DELIVERED",
                         is_simulated=True
                     )
                     db.add(comm)
+
+                    # Trigger privacy-safe FCM push notification if registered
+                    try:
+                        fcm_service.send_push_to_patient(db, patient.id, notification_type="RECOVERY_CHECKIN")
+                    except Exception as pe:
+                        logger.warning(f"Failed to dispatch FCM check-in push for patient {patient.id}: {pe}")
 
             # -------------------------------------------------------------
             # 2. GENERATE MEDICATION REMINDERS
@@ -162,12 +189,18 @@ class BackgroundMonitoringScheduler:
                             channel="SIMULATED_WHATSAPP",
                             message_type="MEDICATION_REMINDER",
                             recipient_phone=patient.phone,
-                            content=f"Medication Reminder: Time to take your {med.medicine_name} ({med.dosage}). Instructions: {med.instructions or 'Take with water'}. Please confirm in your portal.",
+                            content=format_medication_reminder(patient, med),
                             status="DELIVERED",
                             is_simulated=True
                         )
                         db.add(rem_comm)
                         reminders_created += 1
+
+                        # Trigger privacy-safe FCM push notification if registered
+                        try:
+                            fcm_service.send_push_to_patient(db, med.patient_id, notification_type="MEDICATION_REMINDER")
+                        except Exception as pe:
+                            logger.warning(f"Failed to dispatch FCM medication push for patient {med.patient_id}: {pe}")
 
             # -------------------------------------------------------------
             # 3. DETECT UNANSWERED CHECK-INS & AUTO-CATEGORISE
@@ -186,20 +219,76 @@ class BackgroundMonitoringScheduler:
                 st.category_reason = "Check-in window expired without patient submission."
                 unanswered_flagged += 1
 
-                # Generate Alert for clinician review if unanswered
-                alert = Alert(
+                # Generate or link Alert for clinician review if unanswered (deduplicated)
+                alert, created = RulesEngine.create_or_get_alert(
+                    db=db,
                     patient_id=st.patient_id,
                     rule_code="UNANSWERED_CHECKIN",
                     severity="MEDIUM",
                     title="Missed Daily Recovery Check-in",
                     description=f"Patient missed scheduled recovery check-in from {st.scheduled_for.strftime('%d-%b %H:%M')}.",
                     supporting_data={"task_id": st.id},
-                    status="OPEN",
-                    sla_due_at=now + timedelta(hours=4)
+                    sla_due_at=now + timedelta(hours=4),
+                    action_log_notes="Auto-triggered by monitoring scheduler for expired recovery check-in."
                 )
-                db.add(alert)
-                db.flush()
                 st.alert_id = alert.id
+
+            # -------------------------------------------------------------
+            # 4. PROCESS SCHEDULED FOLLOW-UP RETRIES (Bounded Backoff)
+            # -------------------------------------------------------------
+            retries_processed = 0
+            pending_retries = db.execute(
+                select(CallSession).where(
+                    CallSession.status == "RETRY_SCHEDULED",
+                    CallSession.is_deferred == True,
+                    CallSession.deferred_until <= now
+                )
+            ).scalars().all()
+
+            for ret_session in pending_retries:
+                # Check if patient already completed a check-in today
+                completed_today = db.execute(
+                    select(CheckinTask).where(
+                        CheckinTask.patient_id == ret_session.patient_id,
+                        CheckinTask.status == "COMPLETED",
+                        CheckinTask.scheduled_for >= today_start
+                    )
+                ).scalars().first()
+
+                if completed_today:
+                    # Cancel obsolete retry
+                    ret_session.is_deferred = False
+                    ret_session.status = "CANCELLED"
+                    ret_session.deferred_until = None
+                    continue
+
+                # Bounded attempt check against patient retry limit
+                patient_rec = db.get(Patient, ret_session.patient_id)
+                p_limit = patient_rec.retry_limit if patient_rec else 3
+                if ret_session.retry_count >= p_limit:
+                    ret_session.status = "FAILED"
+                    ret_session.is_deferred = False
+                    ret_session.deferred_until = None
+                    continue
+
+                # Ready for retry attempt
+                ret_session.is_deferred = False
+                ret_session.status = "INITIATED"
+                retries_processed += 1
+                if patient_rec:
+                    db.add(CommunicationLog(
+                        patient_id=patient_rec.id,
+                        channel="SIMULATED_VOICE",
+                        message_type="FOLLOWUP_RETRY",
+                        recipient_phone=patient_rec.phone,
+                        content=f"[RETRY ATTEMPT #{ret_session.retry_count}] Automated Recovery Follow-up for {patient_rec.first_name}. Prior disposition: {ret_session.disposition}.",
+                        status="DELIVERED",
+                        is_simulated=True
+                    ))
+                    try:
+                        fcm_service.send_push_to_patient(db, patient_rec.id, notification_type="CARE_TEAM_UPDATE")
+                    except Exception as pe:
+                        logger.warning(f"Failed to dispatch FCM retry push for patient {patient_rec.id}: {pe}")
 
             db.commit()
 
@@ -215,5 +304,6 @@ class BackgroundMonitoringScheduler:
             "timestamp": datetime.utcnow().isoformat(),
             "tasks_created": tasks_created,
             "reminders_created": reminders_created,
-            "unanswered_flagged": unanswered_flagged
+            "unanswered_flagged": unanswered_flagged,
+            "retries_processed": retries_processed
         }

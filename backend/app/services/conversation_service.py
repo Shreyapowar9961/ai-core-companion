@@ -1,4 +1,5 @@
 import uuid
+import re
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, Optional, List, Tuple
 from sqlalchemy.orm import Session
@@ -16,6 +17,19 @@ from app.services.language_service import LanguageService
 from app.services.rules_engine import RulesEngine
 from app.services.llm_extraction import llm_extraction_service
 from app.core.audit import log_audit_event
+
+def phrase_matches(phrase: str, text: str) -> bool:
+    """Matches words or multi-word phrases using word boundaries to prevent substring collisions."""
+    p = phrase.strip().lower()
+    t = text.lower()
+    if not p:
+        return False
+    if any(0x0900 <= ord(c) <= 0x097F for c in p):
+        pattern = r"(?:^|[\s,।!?.]|\b)" + re.escape(p) + r"(?:$|[\s,।!?.]|\b)"
+        return bool(re.search(pattern, t))
+    pattern = r"(?:\b|^)" + re.escape(p) + r"(?:\b|$)"
+    return bool(re.search(pattern, t))
+
 
 class ConversationService:
     """
@@ -188,7 +202,34 @@ class ConversationService:
         is_red_flag = False
 
         if current_step == "IDENTITY_CHECK":
-            if any(term in speech_lower for term in ["yes", "speaking", "ha", "haan", "ho", "me boltoy", "bol raha hu"]):
+            inquiry_terms = [
+                "who is this", "who is calling", "who are you", "who is speaking",
+                "kaun bol raha", "kaun hai", "kon boltoy", "kon ahe", "koni call kela",
+                "कौन बोल रहा", "कौन है", "कोण बोलतंय", "कोण आहे"
+            ]
+            affirmative_terms = [
+                "yes", "speaking", "ha", "haan", "ho", "me boltoy", "bol raha hu",
+                "it's me", "this is", "myself", "i am", "sure", "okay", "correct",
+                "right", "yep", "yeah", "ji haan", "mi ahe", "boltoy", "boltey",
+                "bol raha hoon", "bol rahi hoon", "ahe", "speaking here",
+                "हाँ", "हां", "जी हाँ", "जी हां", "हो", "होय", "मी आहे",
+                "बोलतोय", "बोलतेय", "बोल रहा हूँ", "बोल रही हूँ", "बोल रहा हु"
+            ]
+            refusal_terms = [
+                "no", "nahi", "wrong number", "not him", "not her", "not speaking",
+                "nahi hai", "wrong person", "galat number", "chuki cha number", "not available", "nahi boltoy",
+                "नहीं", "नही", "गलत नंबर", "नाही", "नाहीये", "चूकीचा नंबर", "उपलब्ध नाही"
+            ]
+            patient_name_present = any(
+                phrase_matches(part, speech_lower) for part in [patient.first_name, patient.last_name] if part and len(part) > 2
+            )
+            is_inquiry = any(phrase_matches(t, speech_lower) for t in inquiry_terms)
+            is_affirmative = not is_inquiry and (
+                any(phrase_matches(term, speech_lower) for term in affirmative_terms) or patient_name_present
+            )
+            is_refusal = any(phrase_matches(term, speech_lower) for term in refusal_terms)
+
+            if is_affirmative:
                 resume_ctx["caller_verified"] = True
                 next_step = "WELLBEING"
                 agent_response_text = LanguageService.get_prompt(
@@ -196,7 +237,7 @@ class ConversationService:
                     lang=lang,
                     name=patient.first_name
                 )
-            else:
+            elif is_refusal:
                 agent_response_text = LanguageService.get_prompt(
                     "UNAUTHORIZED_CALLER_REFUSAL",
                     lang=lang,
@@ -216,6 +257,37 @@ class ConversationService:
                     "disposition": "WRONG_PERSON",
                     "extracted_data": {"caller_verified": False}
                 }
+            else:
+                # Ambiguous greeting, inquiry or unclear response: clarify politely up to 2 retries
+                retries = resume_ctx.get("identity_retries", 0)
+                if retries < 2:
+                    resume_ctx["identity_retries"] = retries + 1
+                    agent_response_text = LanguageService.get_prompt(
+                        "IDENTITY_CLARIFICATION",
+                        lang=lang,
+                        name=f"{patient.first_name} {patient.last_name}"
+                    )
+                    next_step = "IDENTITY_CHECK"
+                else:
+                    agent_response_text = LanguageService.get_prompt(
+                        "UNAUTHORIZED_CALLER_REFUSAL",
+                        lang=lang,
+                        name=patient.first_name
+                    )
+                    session.status = "COMPLETED"
+                    session.disposition = "WRONG_PERSON"
+                    is_completed = True
+                    db.commit()
+                    return {
+                        "session_id": session.id,
+                        "turn_index": turn_index,
+                        "step_key": current_step,
+                        "agent_prompt_text": agent_response_text,
+                        "language": lang,
+                        "is_completed": True,
+                        "disposition": "WRONG_PERSON",
+                        "extracted_data": {"caller_verified": False}
+                    }
 
         elif current_step == "WELLBEING":
             extracted = llm_extraction_service.extract_checkin_symptoms(user_speech)
@@ -224,7 +296,7 @@ class ConversationService:
             turn_extracted_data["symptoms_preliminary"] = extracted
 
             next_step = "SYMPTOMS_PAIN"
-            agent_response_text = LanguageService.get_prompt("SYMPTOMS_PAIN", lang=lang)
+            agent_response_text = LanguageService.get_prompt("WELLBEING_ACK_PAIN_PROMPT", lang=lang)
 
         elif current_step == "SYMPTOMS_PAIN":
             extracted = llm_extraction_service.extract_checkin_symptoms(user_speech)
@@ -339,6 +411,7 @@ class ConversationService:
 
         elif current_step == "VITALS_BP":
             parsed = LanguageService.parse_vitals_reading_from_speech("BP", user_speech)
+            bp_readback = ""
             if not parsed or parsed[0] is None:
                 reading = VitalReading(
                     patient_id=patient.id,
@@ -376,8 +449,15 @@ class ConversationService:
                 resume_ctx["bp_sys"] = sys
                 resume_ctx["bp_dia"] = dia
                 turn_extracted_data["bp"] = f"{sys}/{dia}"
+                bp_val_str = f"{int(sys)} over {int(dia)}" if dia else f"{int(sys)}"
+                bp_readback = LanguageService.get_prompt(
+                    "VITALS_CONFIRMATION_READBACK",
+                    lang=lang,
+                    vital_name="Blood Pressure",
+                    value=bp_val_str,
+                    unit="mmHg"
+                )
 
-            next_step = "MEDICATION"
             med_stmt = select(MedicationSchedule).where(
                 MedicationSchedule.patient_id == patient.id,
                 MedicationSchedule.is_active == True
@@ -387,15 +467,18 @@ class ConversationService:
                 first_med = meds[0]
                 resume_ctx["current_med_id"] = first_med.id
                 resume_ctx["current_med_name"] = first_med.medicine_name
-                agent_response_text = LanguageService.get_prompt(
+                med_prompt = LanguageService.get_prompt(
                     "MEDICATION_REMINDER",
                     lang=lang,
                     medicine_name=first_med.medicine_name,
                     dosage=first_med.dosage
                 )
+                agent_response_text = f"{bp_readback} {med_prompt}".strip()
+                next_step = "MEDICATION"
             else:
+                hydr_prompt = LanguageService.get_prompt("LIFESTYLE_HYDRATION_PROMPT", lang=lang)
+                agent_response_text = f"{bp_readback} {hydr_prompt}".strip()
                 next_step = "LIFESTYLE_HYDRATION"
-                agent_response_text = "Have you been drinking water regularly today? How many glasses have you had so far?"
 
         elif current_step == "MEDICATION":
             med_status, med_reason = LanguageService.parse_code_mixed_medication_response(user_speech)
@@ -415,8 +498,7 @@ class ConversationService:
                 )
                 db.add(med_log)
                 db.flush()
-                agent_response_text = "Understood. I will reschedule a reminder for your medication in 30 minutes."
-                next_step = "LIFESTYLE_HYDRATION"
+                ack = LanguageService.get_prompt("MEDICATION_DEFERRED_ACK", lang=lang)
             elif med_status == "TAKEN":
                 med_log = MedicationLog(
                     patient_id=patient.id,
@@ -429,8 +511,7 @@ class ConversationService:
                 )
                 db.add(med_log)
                 db.flush()
-                agent_response_text = f"Great, I have recorded your dose of {med_name} as taken."
-                next_step = "LIFESTYLE_HYDRATION"
+                ack = LanguageService.get_prompt("MEDICATION_TAKEN_ACK", lang=lang, medicine_name=med_name)
             elif med_status == "MISSED":
                 med_log = MedicationLog(
                     patient_id=patient.id,
@@ -444,8 +525,7 @@ class ConversationService:
                 db.add(med_log)
                 db.flush()
                 RulesEngine.evaluate_medication_miss(db, patient.id, med_name)
-                agent_response_text = f"I have noted that you missed {med_name}. Please do not take an extra dose without consulting your doctor."
-                next_step = "LIFESTYLE_HYDRATION"
+                ack = LanguageService.get_prompt("MEDICATION_MISSED_ACK", lang=lang, medicine_name=med_name)
             else:
                 med_log = MedicationLog(
                     patient_id=patient.id,
@@ -458,20 +538,21 @@ class ConversationService:
                 )
                 db.add(med_log)
                 db.flush()
-                next_step = "LIFESTYLE_HYDRATION"
-                agent_response_text = "I have noted that. Let us continue with your hydration and recovery check."
+                ack = LanguageService.get_prompt("MEDICATION_UNCLEAR_ACK", lang=lang)
 
             turn_extracted_data["medication"] = {"name": med_name, "status": med_status, "reason": med_reason}
-            agent_response_text += " Are you able to drink water at your scheduled intervals today?"
+            hydr_prompt = LanguageService.get_prompt("LIFESTYLE_HYDRATION_PROMPT", lang=lang)
+            agent_response_text = f"{ack} {hydr_prompt}"
+            next_step = "LIFESTYLE_HYDRATION"
 
         elif current_step == "LIFESTYLE_HYDRATION":
             log = LifestyleLog(
                 patient_id=patient.id,
                 log_type="HYDRATION",
                 target_value=8.0,
-                actual_value=5.0 if "yes" in speech_lower or "ha" in speech_lower or "ho" in speech_lower else 2.0,
+                actual_value=5.0 if any(t in speech_lower for t in ["yes", "ha", "haan", "ho", "drank", "piya"]) else 2.0,
                 unit="glasses",
-                completion_status="COMPLETED" if "yes" in speech_lower or "ha" in speech_lower else "PARTIAL",
+                completion_status="COMPLETED" if any(t in speech_lower for t in ["yes", "ha", "haan", "ho", "drank", "piya"]) else "PARTIAL",
                 recorded_at=datetime.utcnow()
             )
             db.add(log)
@@ -487,41 +568,47 @@ class ConversationService:
                 next_step = "APPOINTMENT"
                 resume_ctx["current_appointment_id"] = appt.id
                 time_str = appt.scheduled_time.strftime("%A, %d %B at %I:%M %p")
-                agent_response_text = (
-                    f"You have an upcoming appointment for {appt.appointment_type.replace('_', ' ')} with "
-                    f"{appt.doctor_facility_name} on {time_str}. Will you be able to attend?"
+                agent_response_text = LanguageService.get_prompt(
+                    "APPOINTMENT_PROMPT",
+                    lang=lang,
+                    appointment_type=appt.appointment_type.replace('_', ' '),
+                    facility=appt.doctor_facility_name,
+                    time_str=time_str
                 )
             else:
                 next_step = "WRAP_UP"
-                agent_response_text = (
-                    "Thank you for completing your daily recovery check-in. Your care team has received your updates. "
-                    "Rest well and stay hydrated. Goodbye!"
+                agent_response_text = LanguageService.get_prompt(
+                    "WRAP_UP_COMPLETE",
+                    lang=lang,
+                    name=patient.first_name
                 )
                 is_completed = True
                 disposition = "COMPLETED"
 
         elif current_step == "APPOINTMENT":
             appt_id = resume_ctx.get("current_appointment_id")
+            ack = ""
             if appt_id:
                 appt = db.get(Appointment, appt_id)
                 if appt:
                     if any(w in speech_lower for w in ["yes", "ha", "haan", "ho", "attend", "confirm"]):
                         appt.status = "CONFIRMED"
                         appt.attendance_confirmed_at = datetime.utcnow()
-                        agent_response_text = "Thank you, your appointment attendance is confirmed."
+                        ack = LanguageService.get_prompt("APPOINTMENT_CONFIRMED", lang=lang)
                     elif any(w in speech_lower for w in ["reschedule", "change time", "badal do"]):
                         appt.status = "RESCHEDULE_REQUESTED"
                         appt.reschedule_reason = user_speech
                         appt.reschedule_task_created = True
-                        agent_response_text = "I have raised a rescheduling task for your care team. They will contact you with alternate times."
+                        ack = LanguageService.get_prompt("APPOINTMENT_RESCHEDULE", lang=lang)
                     elif any(w in speech_lower for w in ["no", "cannot", "nahi", "cancel"]):
                         appt.status = "DECLINED"
                         appt.decline_reason = user_speech
-                        agent_response_text = "I have noted that you cannot attend. Please ensure you reschedule as follow-ups are important."
+                        ack = LanguageService.get_prompt("APPOINTMENT_DECLINED", lang=lang)
                     db.commit()
 
             next_step = "WRAP_UP"
-            agent_response_text += " Thank you for taking the time to speak with me. Take care and have a restful day!"
+            wrap = LanguageService.get_prompt("WRAP_UP_COMPLETE", lang=lang, name=patient.first_name)
+            agent_response_text = f"{ack} {wrap}".strip() if ack else wrap
             is_completed = True
             disposition = "COMPLETED"
 
@@ -608,4 +695,149 @@ class ConversationService:
             "agent_prompt_text": prompt,
             "language": lang,
             "saved_context": session.resume_context
+        }
+
+    @classmethod
+    def handle_call_disposition(
+        cls,
+        db: Session,
+        session_id: str,
+        disposition: str,
+        is_simulation: bool = False,
+        notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Processes call disposition with bounded exponential backoff retry scheduling
+        and clinical escalation rules when retry limits are reached.
+        """
+        session = db.get(CallSession, session_id)
+        if not session:
+            raise ValueError(f"Session {session_id} not found")
+
+        patient = db.get(Patient, session.patient_id)
+        retry_limit = patient.retry_limit if patient else 3
+
+        session.disposition = disposition
+
+        if disposition == "COMPLETED":
+            session.status = "COMPLETED"
+            session.is_deferred = False
+            session.deferred_until = None
+            db.commit()
+
+            log_audit_event(
+                db=db,
+                event_type="CALL_COMPLETED",
+                actor_id="AI_COMPANION",
+                actor_role="SYSTEM",
+                resource="call_session",
+                details={"session_id": session.id, "disposition": "COMPLETED"},
+                patient_id=session.patient_id
+            )
+            return {
+                "message": "Call completed successfully.",
+                "session_id": session.id,
+                "status": "COMPLETED",
+                "disposition": "COMPLETED",
+                "retry_count": session.retry_count
+            }
+
+        # Failed / Unreachable / Deferred call attempt
+        if disposition in ["NO_ANSWER", "BUSY", "UNREACHABLE", "DECLINED", "DISCONNECTED"]:
+            session.retry_count = (session.retry_count or 0) + 1
+
+            if session.retry_count >= retry_limit:
+                session.status = "FAILED"
+                session.is_deferred = False
+                session.deferred_until = None
+                db.commit()
+
+                # Trigger clinical alert only for real operational failures (never for UI simulation demo)
+                escalated = False
+                if not is_simulation and patient:
+                    RulesEngine.evaluate_contact_failure(
+                        db=db,
+                        patient_id=patient.id,
+                        retry_count=session.retry_count,
+                        retry_limit=retry_limit,
+                        last_disposition=disposition
+                    )
+                    escalated = True
+
+                log_audit_event(
+                    db=db,
+                    event_type="CALL_RETRY_LIMIT_EXHAUSTED",
+                    actor_id="AI_COMPANION",
+                    actor_role="SYSTEM",
+                    resource="call_session",
+                    details={
+                        "session_id": session.id,
+                        "retry_count": session.retry_count,
+                        "retry_limit": retry_limit,
+                        "is_simulation": is_simulation,
+                        "escalated": escalated
+                    },
+                    patient_id=session.patient_id
+                )
+
+                return {
+                    "message": f"Retry limit reached ({session.retry_count}/{retry_limit}).",
+                    "session_id": session.id,
+                    "status": "FAILED",
+                    "disposition": disposition,
+                    "retry_count": session.retry_count,
+                    "retry_limit": retry_limit,
+                    "escalated": escalated,
+                    "is_simulation": is_simulation
+                }
+            else:
+                # Bounded exponential backoff: attempt 1 -> 15 min, attempt 2 -> 45 min, attempt 3+ -> 120 min
+                backoff_schedule = [15, 45, 120]
+                backoff_index = min(session.retry_count - 1, len(backoff_schedule) - 1)
+                backoff_mins = backoff_schedule[backoff_index]
+                scheduled_retry_time = datetime.utcnow() + timedelta(minutes=backoff_mins)
+
+                session.status = "RETRY_SCHEDULED"
+                session.is_deferred = True
+                session.deferred_until = scheduled_retry_time
+                db.commit()
+
+                log_audit_event(
+                    db=db,
+                    event_type="CALL_RETRY_SCHEDULED",
+                    actor_id="AI_COMPANION",
+                    actor_role="SYSTEM",
+                    resource="call_session",
+                    details={
+                        "session_id": session.id,
+                        "retry_count": session.retry_count,
+                        "retry_limit": retry_limit,
+                        "backoff_minutes": backoff_mins,
+                        "scheduled_retry_at": scheduled_retry_time.isoformat(),
+                        "is_simulation": is_simulation
+                    },
+                    patient_id=session.patient_id
+                )
+
+                return {
+                    "message": f"Retry #{session.retry_count} scheduled with {backoff_mins}m backoff.",
+                    "session_id": session.id,
+                    "status": "RETRY_SCHEDULED",
+                    "disposition": disposition,
+                    "retry_count": session.retry_count,
+                    "retry_limit": retry_limit,
+                    "next_retry_at": scheduled_retry_time.isoformat(),
+                    "backoff_minutes": backoff_mins,
+                    "is_simulation": is_simulation
+                }
+
+        # Any other custom disposition
+        session.status = "FAILED"
+        session.is_deferred = False
+        db.commit()
+        return {
+            "message": f"Disposition recorded: {disposition}",
+            "session_id": session.id,
+            "status": "FAILED",
+            "disposition": disposition
         }

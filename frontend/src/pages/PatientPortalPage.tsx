@@ -5,12 +5,23 @@ import {
   HeartPulse, Pill, Calendar, Bell, MessageSquare, CheckCircle2,
   AlertCircle, Phone, Clock, FileText, Star, Activity, Sparkles,
   ShieldCheck, LogOut, ChevronRight, Droplets, Footprints, AlertTriangle,
-  ExternalLink
+  ExternalLink, BellRing, BellOff, Radio
 } from 'lucide-react';
 import { translations, Language } from '../utils/translations';
 import {
   CheckinTask, CommunicationLog, PatientFeedback, PatientDashboardSummary
 } from '../types';
+import { MedicationReminderModal } from '../components/MedicationReminderModal';
+import { MissedMedicationAlertModal } from '../components/MissedMedicationAlertModal';
+import { CommunicationPreviewModal } from '../components/CommunicationPreviewModal';
+import { ExternalIntegrationRequiredModal } from '../components/ExternalIntegrationRequiredModal';
+import {
+  isPushSupported,
+  getNotificationPermission,
+  requestPushPermissionAndGetToken,
+  deregisterPushToken,
+  setupForegroundPushListener
+} from '../services/firebaseMessaging';
 
 export const PatientPortalPage: React.FC = () => {
   const { currentUser, token, logout } = useAuth();
@@ -29,15 +40,32 @@ export const PatientPortalPage: React.FC = () => {
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Notification Read/Unread State
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [isMarkingRead, setIsMarkingRead] = useState<string | null>(null);
+
+  // In-App Medication Reminder & Missed Alert State
+  const [activeReminderMed, setActiveReminderMed] = useState<any | null>(null);
+  const [activeMissedAlertMed, setActiveMissedAlertMed] = useState<any | null>(null);
+  const [snoozedMeds, setSnoozedMeds] = useState<string[]>([]);
+  const [dismissedMissedAlerts, setDismissedMissedAlerts] = useState<string[]>([]);
+  const [isConfirmingReminder, setIsConfirmingReminder] = useState<boolean>(false);
+
+  // Simulation Previews & Integration State
+  const [commPreviewModalOpen, setCommPreviewModalOpen] = useState<boolean>(false);
+  const [commPreviewChannel, setCommPreviewChannel] = useState<'SMS' | 'WHATSAPP'>('SMS');
+  const [commPreviewCustomText, setCommPreviewCustomText] = useState<string | undefined>(undefined);
+  const [integrationModalOpen, setIntegrationModalOpen] = useState<boolean>(false);
+
   // Checkin Questionnaire Form State
-  const [painLevel, setPainLevel] = useState<number>(2);
+  const [painLevel, setPainLevel] = useState<number>(0);
   const [breathlessness, setBreathlessness] = useState<string>('none');
   const [dizziness, setDizziness] = useState<string>('none');
   const [swelling, setSwelling] = useState<string>('none');
   const [woundStatus, setWoundStatus] = useState<string>('healing_well');
-  const [spo2, setSpo2] = useState<string>('96');
-  const [systolicBp, setSystolicBp] = useState<string>('124');
-  const [heartRate, setHeartRate] = useState<string>('76');
+  const [spo2, setSpo2] = useState<string>('');
+  const [systolicBp, setSystolicBp] = useState<string>('');
+  const [heartRate, setHeartRate] = useState<string>('');
   const [otherNotes, setOtherNotes] = useState<string>('');
   const [isSubmittingCheckin, setIsSubmittingCheckin] = useState<boolean>(false);
   const [checkinResult, setCheckinResult] = useState<any | null>(null);
@@ -52,10 +80,47 @@ export const PatientPortalPage: React.FC = () => {
   const [feedbackComments, setFeedbackComments] = useState<string>('');
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState<boolean>(false);
 
+  // Feature H: Push Notification Preferences State
+  const [pushSupported, setPushSupported] = useState<boolean>(true);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>('default');
+  const [pushRegistration, setPushRegistration] = useState<{
+    push_enabled: boolean;
+    has_registered_device: boolean;
+    active_devices_count: number;
+    registered_at: string | null;
+    last_sent_at: string | null;
+  } | null>(null);
+  const [isUpdatingPush, setIsUpdatingPush] = useState<boolean>(false);
+  const [foregroundPushAlert, setForegroundPushAlert] = useState<{ title: string; body: string } | null>(null);
+
   const t = translations[lang];
 
   useEffect(() => {
     loadPortalData();
+
+    // Check browser support and attach foreground push listener
+    let unsubscribe: (() => void) | null = null;
+    isPushSupported().then((sup) => {
+      setPushSupported(sup);
+      if (sup) {
+        setPushPermission(getNotificationPermission());
+        setupForegroundPushListener((payload) => {
+          const title = payload.notification?.title || payload.data?.title || 'AI Care Companion';
+          const body = payload.notification?.body || payload.data?.body || 'You have a new recovery reminder. Open your patient portal.';
+          setForegroundPushAlert({ title, body });
+          if (token) {
+            apiClient.getPortalNotifications(token).then((nd) => setNotifications(nd)).catch(() => {});
+            apiClient.getPortalUnreadNotificationCount(token).then((ud) => setUnreadCount(ud.unread_count)).catch(() => {});
+          }
+        }).then((unsub) => {
+          unsubscribe = unsub;
+        });
+      }
+    });
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, [token]);
 
   const loadPortalData = async () => {
@@ -63,7 +128,7 @@ export const PatientPortalPage: React.FC = () => {
     setIsLoading(true);
     setActionError(null);
     try {
-      const [sumData, medsData, historyData, checkinsData, notifData, commsData, fbData, prescrData] = await Promise.all([
+      const [sumData, medsData, historyData, checkinsData, notifData, commsData, fbData, prescrData, unreadData, pushPrefData] = await Promise.all([
         apiClient.getPortalDashboard(token).catch(() => null),
         apiClient.getPortalMedicationsSchedule(token).catch(() => []),
         apiClient.getPortalMedicationsHistory(token).catch(() => []),
@@ -71,7 +136,9 @@ export const PatientPortalPage: React.FC = () => {
         apiClient.getPortalNotifications(token).catch(() => []),
         apiClient.getPortalCommunications(token).catch(() => []),
         apiClient.getPortalFeedback(token).catch(() => []),
-        apiClient.getPortalPrescriptions(token).catch(() => [])
+        apiClient.getPortalPrescriptions(token).catch(() => []),
+        apiClient.getPortalUnreadNotificationCount(token).catch(() => ({ unread_count: 0 })),
+        apiClient.getNotificationPreferences(token).catch(() => null)
       ]);
 
       if (sumData) {
@@ -87,10 +154,181 @@ export const PatientPortalPage: React.FC = () => {
       setCommunications(commsData);
       setFeedbacks(fbData);
       setPrescriptions(prescrData || []);
+      if (pushPrefData) {
+        setPushRegistration(pushPrefData);
+      }
+      setPushPermission(getNotificationPermission());
+
+      if (unreadData && typeof unreadData.unread_count === 'number') {
+        setUnreadCount(unreadData.unread_count);
+      } else if (Array.isArray(notifData)) {
+        setUnreadCount(notifData.filter((n: any) => !n.is_read).length);
+      }
+
+      // Real In-App Medication Reminder Trigger:
+      // Checks active medication schedule for unconfirmed doses scheduled for today
+      if (Array.isArray(medsData) && medsData.length > 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const takenTodayScheduleIds = new Set(
+          (historyData || [])
+            .filter((h: any) => h.status === 'TAKEN' && h.taken_at?.startsWith(todayStr))
+            .map((h: any) => h.medication_schedule_id)
+        );
+        const dueMed = medsData.find((m: any) => m.is_active && !takenTodayScheduleIds.has(m.id) && !snoozedMeds.includes(m.id));
+        if (dueMed && !activeReminderMed) {
+          setActiveReminderMed(dueMed);
+        }
+      }
+
+      // Real Missed Medication Alert Trigger:
+      // Checks if a scheduled dose was officially recorded as MISSED today
+      if (Array.isArray(historyData) && historyData.length > 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayMissed = historyData.find(
+          (h: any) => h.status === 'MISSED' && h.scheduled_time?.startsWith(todayStr) && !dismissedMissedAlerts.includes(h.id)
+        );
+        if (todayMissed && !activeMissedAlertMed && !activeReminderMed) {
+          setActiveMissedAlertMed(todayMissed);
+        }
+      }
+
     } catch (err: any) {
       setActionError(err.message || 'Failed to load recovery portal records.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleMarkNotificationRead = async (notificationId: string) => {
+    if (!token) return;
+    setIsMarkingRead(notificationId);
+    try {
+      await apiClient.markPortalNotificationRead(token, notificationId);
+      setNotifications((prev) =>
+        prev.map((n) =>
+          n.id === notificationId ? { ...n, is_read: true, status: 'VIEWED', viewed_at: new Date().toISOString() } : n
+        )
+      );
+      setUnreadCount((prev) => Math.max(0, prev - 1));
+    } catch (err: any) {
+      console.warn('Could not mark notification read:', err.message);
+    } finally {
+      setIsMarkingRead(null);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (!token) return;
+    try {
+      await apiClient.markAllPortalNotificationsRead(token);
+      setNotifications((prev) =>
+        prev.map((n) => ({ ...n, is_read: true, status: 'VIEWED', viewed_at: new Date().toISOString() }))
+      );
+      setUnreadCount(0);
+      setActionSuccess('All notifications marked as read.');
+      setTimeout(() => setActionSuccess(null), 3000);
+    } catch (err: any) {
+      setActionError(err.message || 'Could not mark all as read.');
+    }
+  };
+
+  const handleEnablePush = async () => {
+    if (!token) return;
+    setIsUpdatingPush(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await requestPushPermissionAndGetToken(token);
+      if (res.success) {
+        setPushPermission(getNotificationPermission());
+        const pref = await apiClient.getNotificationPreferences(token);
+        setPushRegistration(pref);
+        setActionSuccess('Browser push notifications enabled successfully! You will receive recovery reminders even when the portal is closed.');
+        setTimeout(() => setActionSuccess(null), 5000);
+      } else {
+        setPushPermission(getNotificationPermission());
+        setActionError(res.error || 'Could not enable push notifications.');
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to enable push notifications.');
+    } finally {
+      setIsUpdatingPush(false);
+    }
+  };
+
+  const handleDisablePush = async () => {
+    if (!token) return;
+    setIsUpdatingPush(true);
+    setActionError(null);
+    setActionSuccess(null);
+    try {
+      const res = await deregisterPushToken(token);
+      if (res.success) {
+        const pref = await apiClient.getNotificationPreferences(token);
+        setPushRegistration(pref);
+        setActionSuccess('Browser push notifications have been disabled on this device.');
+        setTimeout(() => setActionSuccess(null), 5000);
+      } else {
+        setActionError(res.error || 'Could not disable push notifications.');
+      }
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to disable push notifications.');
+    } finally {
+      setIsUpdatingPush(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    if (token) {
+      try {
+        await deregisterPushToken(token);
+      } catch (err) {
+        console.warn('Could not deregister push token on logout:', err);
+      }
+    }
+    logout();
+  };
+
+  const handleConfirmReminderTaken = async () => {
+    if (!activeReminderMed || !token) return;
+    setIsConfirmingReminder(true);
+    try {
+      await apiClient.confirmPortalMedicationTaken(token, {
+        medication_schedule_id: activeReminderMed.id,
+        medicine_name: activeReminderMed.medicine_name,
+        dosage: activeReminderMed.dosage
+      });
+      setActiveReminderMed(null);
+      setActionSuccess(`Recorded dose of ${activeReminderMed.medicine_name} as taken.`);
+      setTimeout(() => setActionSuccess(null), 4000);
+      loadPortalData();
+    } catch (err: any) {
+      setActionError(err.message || 'Could not record dose.');
+    } finally {
+      setIsConfirmingReminder(false);
+    }
+  };
+
+  const handleReminderReportMissed = () => {
+    if (!activeReminderMed) return;
+    const medToReport = activeReminderMed;
+    setActiveReminderMed(null);
+    setSelectedMissedMed(medToReport);
+  };
+
+  const handleSnoozeReminder = () => {
+    if (activeReminderMed) {
+      setSnoozedMeds((prev) => [...prev, activeReminderMed.id]);
+      setActiveReminderMed(null);
+      setActionSuccess('Reminder snoozed for later. Adherence records remain unchanged.');
+      setTimeout(() => setActionSuccess(null), 3000);
+    }
+  };
+
+  const handleDismissMissedAlert = () => {
+    if (activeMissedAlertMed) {
+      setDismissedMissedAlerts((prev) => [...prev, activeMissedAlertMed.id]);
+      setActiveMissedAlertMed(null);
     }
   };
 
@@ -246,9 +484,19 @@ export const PatientPortalPage: React.FC = () => {
               </button>
             </div>
 
+            {/* Carrier Status Button */}
+            <button
+              onClick={() => setIntegrationModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100 text-xs font-semibold transition-all"
+              title="View Carrier Delivery Status"
+            >
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
+              <span className="hidden md:inline">Carrier Status</span>
+            </button>
+
             {/* Logout Button */}
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100 text-xs font-semibold transition-all"
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -289,10 +537,17 @@ export const PatientPortalPage: React.FC = () => {
           </button>
           <button
             onClick={() => setActiveTab('notifications')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 ${activeTab === 'notifications' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1.5 relative ${activeTab === 'notifications' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             <Bell className="w-3.5 h-3.5" />
-            {t.notifications_tab} ({notifications.length})
+            {t.notifications_tab}
+            {unreadCount > 0 ? (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white shadow-xs">
+                {unreadCount}
+              </span>
+            ) : (
+              <span className="text-[11px] opacity-70">({notifications.length})</span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('comms')}
@@ -352,14 +607,14 @@ export const PatientPortalPage: React.FC = () => {
                 <div>
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.recovery_progress}</span>
                   <div className="flex items-baseline gap-2 mt-2">
-                    <span className="text-3xl font-extrabold text-indigo-600">{summary?.progress_score || 92}%</span>
+                    <span className="text-3xl font-extrabold text-indigo-600">{summary?.progress_score !== undefined ? Math.round(summary.progress_score) : 0}%</span>
                     <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">Stable</span>
                   </div>
                 </div>
                 <div className="w-full bg-slate-100 h-2 rounded-full mt-4 overflow-hidden">
                   <div
                     className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${summary?.progress_score || 92}%` }}
+                    style={{ width: `${summary?.progress_score !== undefined ? Math.round(summary.progress_score) : 0}%` }}
                   />
                 </div>
               </div>
@@ -369,7 +624,7 @@ export const PatientPortalPage: React.FC = () => {
                 <div>
                   <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{t.days_post_op}</span>
                   <div className="text-3xl font-extrabold text-slate-900 mt-2">
-                    Day {summary?.days_since_discharge || 4}
+                    Day {summary?.days_since_discharge ?? 0}
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 mt-4">
@@ -386,7 +641,7 @@ export const PatientPortalPage: React.FC = () => {
                       {summary?.medication_summary.taken || 0}/{summary?.medication_summary.total || 0}
                     </span>
                     <span className="text-xs font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full">
-                      {summary?.medication_summary.adherence_rate || 100}% Adherence
+                      {summary?.medication_summary.adherence_rate ?? 0}% Adherence
                     </span>
                   </div>
                 </div>
@@ -452,10 +707,10 @@ export const PatientPortalPage: React.FC = () => {
                     <span>{t.doctor_in_charge}</span>
                   </h3>
                   <div className="mt-4 p-4 rounded-xl bg-indigo-50/50 border border-indigo-100">
-                    <p className="font-bold text-sm text-slate-900">{summary?.doctor.name || 'Dr. V. Kulkarni'}</p>
-                    <p className="text-xs text-indigo-700 font-semibold mt-0.5">Senior Cardiothoracic Surgeon</p>
+                    <p className="font-bold text-sm text-slate-900">{summary?.doctor.name || 'Attending Clinician'}</p>
+                    <p className="text-xs text-indigo-700 font-semibold mt-0.5">Cardiothoracic Care Team</p>
                     <p className="text-xs text-slate-600 mt-2">Apex Heart & Recovery Institute, Pune</p>
-                    <p className="text-xs font-mono font-bold text-slate-900 mt-1">{summary?.doctor.phone || '+91 20 2612 3456'}</p>
+                    <p className="text-xs font-mono font-bold text-slate-900 mt-1">{summary?.doctor.phone || 'Available via Hospital Desk'}</p>
                   </div>
                 </div>
                 <div className="mt-4 text-[11px] text-slate-500">
@@ -700,7 +955,7 @@ export const PatientPortalPage: React.FC = () => {
                         </span>
                       </div>
                       <p className="text-xs text-slate-600 mt-3 font-medium">
-                        <strong>Timing:</strong> {(med.dose_times || []).join(', ') || '09:00'}
+                        <strong>Timing:</strong> {(med.dose_times || []).join(', ') || 'As prescribed'}
                       </p>
                       <p className="text-xs text-slate-500 mt-1">
                         <strong>Instructions:</strong> {med.instructions || 'Take with water'}
@@ -779,30 +1034,206 @@ export const PatientPortalPage: React.FC = () => {
         {/* ----------------- TAB 5: NOTIFICATIONS ----------------- */}
         {activeTab === 'notifications' && (
           <div className="space-y-4 max-w-3xl mx-auto">
-            <h2 className="text-lg font-bold text-slate-900 mb-2">{t.notifications_tab}</h2>
+            {/* Foreground Live Push Notification Alert */}
+            {foregroundPushAlert && (
+              <div className="p-4 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-start justify-between gap-3 shadow-xs">
+                <div className="flex items-start gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shrink-0">
+                    <BellRing className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-indigo-900">{foregroundPushAlert.title}</h4>
+                    <p className="text-xs text-indigo-700 mt-0.5">{foregroundPushAlert.body}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setForegroundPushAlert(null)}
+                  className="text-xs text-indigo-500 hover:text-indigo-800 font-semibold px-2 py-1"
+                >
+                  {t.dismiss}
+                </button>
+              </div>
+            )}
+
+            {/* Feature H: Browser Push Notifications Settings Card */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                    pushRegistration?.has_registered_device && pushPermission === 'granted'
+                      ? 'bg-emerald-50 text-emerald-600'
+                      : 'bg-indigo-50 text-indigo-600'
+                  }`}>
+                    {pushRegistration?.has_registered_device && pushPermission === 'granted' ? (
+                      <BellRing className="w-5 h-5" />
+                    ) : (
+                      <BellOff className="w-5 h-5 text-slate-400" />
+                    )}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-bold text-slate-900">{t.push_notifications_title}</h3>
+                      {pushRegistration?.has_registered_device && pushPermission === 'granted' ? (
+                        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                          Active
+                        </span>
+                      ) : pushPermission === 'denied' ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">
+                          Blocked in Browser
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                          Not Enabled
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 max-w-xl">
+                      {t.push_explanation}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="shrink-0 flex items-center gap-2">
+                  {pushRegistration?.has_registered_device && pushPermission === 'granted' ? (
+                    <button
+                      onClick={handleDisablePush}
+                      disabled={isUpdatingPush}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 transition-all disabled:opacity-50"
+                    >
+                      {isUpdatingPush ? 'Updating...' : t.disable_push}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleEnablePush}
+                      disabled={isUpdatingPush || !pushSupported}
+                      className="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition-all shadow-xs flex items-center gap-1.5 disabled:opacity-50"
+                    >
+                      <BellRing className="w-3.5 h-3.5" />
+                      {isUpdatingPush ? 'Connecting...' : t.enable_push}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Status Details Bar */}
+              <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 text-[11px]">
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="text-slate-400 font-medium">Browser Permission</div>
+                  <div className="font-semibold text-slate-800 capitalize mt-0.5">{pushPermission}</div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="text-slate-400 font-medium">Device Status</div>
+                  <div className="font-semibold text-slate-800 mt-0.5">
+                    {pushRegistration?.has_registered_device ? 'Registered' : 'Not Registered'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="text-slate-400 font-medium">Background Delivery</div>
+                  <div className="font-semibold text-slate-800 mt-0.5">
+                    {pushSupported ? 'Supported' : 'Unavailable'}
+                  </div>
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="text-slate-400 font-medium">Privacy Safeguard</div>
+                  <div className="font-semibold text-emerald-700 mt-0.5">Strict Zero-PHI</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">{t.notifications_tab}</h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {unreadCount > 0 ? `${unreadCount} ${t.unread_notifications}` : t.all_caught_up}
+                </p>
+              </div>
+              {unreadCount > 0 && (
+                <button
+                  onClick={handleMarkAllNotificationsRead}
+                  className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 transition-colors flex items-center gap-1.5 shadow-xs"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  {t.mark_all_read}
+                </button>
+              )}
+            </div>
+
             {notifications.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-xs">
                 No notifications logged yet.
               </div>
             ) : (
-              notifications.map((n) => (
-                <div key={n.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm flex items-start gap-3">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
-                    <Bell className="w-4 h-4" />
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                        {n.channel.replace('_', ' ')} · {n.message_type.replace('_', ' ')}
-                      </span>
-                      <span className="text-[10px] font-mono text-slate-400">
-                        {new Date(n.sent_at).toLocaleString()}
-                      </span>
+              notifications.map((n) => {
+                const isUnread = !n.is_read;
+                return (
+                  <div
+                    key={n.id}
+                    className={`rounded-2xl border p-4.5 shadow-xs flex items-start gap-3.5 transition-all ${
+                      isUnread
+                        ? 'bg-indigo-50/20 border-indigo-200 shadow-sm'
+                        : 'bg-white border-slate-200 opacity-90'
+                    }`}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                        isUnread
+                          ? 'bg-indigo-600 text-white shadow-xs'
+                          : 'bg-slate-100 text-slate-500'
+                      }`}
+                    >
+                      <Bell className="w-4 h-4" />
                     </div>
-                    <p className="text-xs text-slate-800 mt-2 font-medium">{n.content}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
+                            {n.channel.replace('_', ' ')} · {n.message_type.replace('_', ' ')}
+                          </span>
+                          {isUnread ? (
+                            <span className="text-[10px] font-bold text-rose-700 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-md">
+                              {t.unread_status}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">
+                              {t.read_status}
+                            </span>
+                          )}
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-400 whitespace-nowrap">
+                          {new Date(n.sent_at).toLocaleString()}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-800 mt-2 font-medium leading-relaxed">{n.content}</p>
+
+                      <div className="mt-3 flex items-center justify-between pt-2 border-t border-slate-100/80">
+                        <button
+                          onClick={() => {
+                            setCommPreviewChannel(n.channel.includes('WHATSAPP') ? 'WHATSAPP' : 'SMS');
+                            setCommPreviewCustomText(n.content);
+                            setCommPreviewModalOpen(true);
+                          }}
+                          className="text-[11px] font-semibold text-slate-500 hover:text-indigo-600 flex items-center gap-1 transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          Preview Device View
+                        </button>
+
+                        {isUnread && (
+                          <button
+                            onClick={() => handleMarkNotificationRead(n.id)}
+                            disabled={isMarkingRead === n.id}
+                            className="text-[11px] font-semibold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1"
+                          >
+                            <CheckCircle2 className="w-3 h-3" />
+                            {isMarkingRead === n.id ? 'Marking...' : t.mark_as_read}
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -810,14 +1241,36 @@ export const PatientPortalPage: React.FC = () => {
         {/* ----------------- TAB 6: COMMUNICATION LOG ----------------- */}
         {activeTab === 'comms' && (
           <div className="space-y-4 max-w-3xl mx-auto">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200">
               <div>
                 <h2 className="text-lg font-bold text-slate-900">{t.comms_tab}</h2>
                 <p className="text-xs text-slate-500 mt-0.5">Automated telephony, WhatsApp, and SMS simulation logs</p>
               </div>
-              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
-                Honest Local Simulation
-              </span>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setCommPreviewChannel('SMS');
+                    setCommPreviewCustomText(undefined);
+                    setCommPreviewModalOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center gap-1.5 transition-colors shadow-2xs"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
+                  {t.preview_sms}
+                </button>
+                <button
+                  onClick={() => {
+                    setCommPreviewChannel('WHATSAPP');
+                    setCommPreviewCustomText(undefined);
+                    setCommPreviewModalOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 flex items-center gap-1.5 transition-colors shadow-2xs"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  {t.preview_whatsapp}
+                </button>
+              </div>
             </div>
 
             {communications.length === 0 ? (
@@ -841,6 +1294,19 @@ export const PatientPortalPage: React.FC = () => {
                   <p className="text-xs text-slate-800 mt-2 font-medium bg-slate-50/70 p-3 rounded-xl border border-slate-100">
                     "{c.content}"
                   </p>
+                  <div className="mt-2.5 flex justify-end">
+                    <button
+                      onClick={() => {
+                        setCommPreviewChannel(c.channel.includes('WHATSAPP') ? 'WHATSAPP' : 'SMS');
+                        setCommPreviewCustomText(c.content);
+                        setCommPreviewModalOpen(true);
+                      }}
+                      className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      View in Device Simulation
+                    </button>
+                  </div>
                 </div>
               ))
             )}
@@ -985,6 +1451,56 @@ export const PatientPortalPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Real In-App Medication Reminder Modal */}
+      {activeReminderMed && (
+        <MedicationReminderModal
+          isOpen={!!activeReminderMed}
+          onClose={() => setActiveReminderMed(null)}
+          medicineName={activeReminderMed.medicine_name}
+          dosage={activeReminderMed.dosage || 'Prescribed dose'}
+          scheduledTime={activeReminderMed.dose_times ? activeReminderMed.dose_times.join(', ') : 'Daily'}
+          instructions={activeReminderMed.instructions}
+          language={lang}
+          onConfirmTaken={handleConfirmReminderTaken}
+          onReportMissed={handleReminderReportMissed}
+          onRemindLater={handleSnoozeReminder}
+          isSubmitting={isConfirmingReminder}
+        />
+      )}
+
+      {/* Missed Medication Clinical Alert Modal */}
+      {activeMissedAlertMed && (
+        <MissedMedicationAlertModal
+          isOpen={!!activeMissedAlertMed}
+          onClose={handleDismissMissedAlert}
+          medicineName={activeMissedAlertMed.medicine_name}
+          scheduledTime={activeMissedAlertMed.scheduled_time ? new Date(activeMissedAlertMed.scheduled_time).toLocaleTimeString() : 'Today'}
+          language={lang}
+          onViewSchedule={() => {
+            handleDismissMissedAlert();
+            setActiveTab('medications');
+          }}
+        />
+      )}
+
+      {/* Simulated SMS & WhatsApp Device Preview Modal */}
+      <CommunicationPreviewModal
+        isOpen={commPreviewModalOpen}
+        onClose={() => setCommPreviewModalOpen(false)}
+        patientName={summary?.patient_name || currentUser?.name || 'Patient'}
+        patientPhone=""
+        defaultChannel={commPreviewChannel}
+        customMessage={commPreviewCustomText}
+        language={lang}
+      />
+
+      {/* External Carrier Service Integration Required Modal */}
+      <ExternalIntegrationRequiredModal
+        isOpen={integrationModalOpen}
+        onClose={() => setIntegrationModalOpen(false)}
+        language={lang}
+      />
     </div>
   );
 };

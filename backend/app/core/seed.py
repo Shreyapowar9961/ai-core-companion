@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, date, timedelta
 from sqlalchemy.orm import Session
 from sqlalchemy import select
@@ -67,16 +68,6 @@ def seed_initial_data(db: Session):
             role="CLINICIAN",
             facility_id="facility-metropolis-2",
             password_hash=hash_password("Clinician123!"),
-            is_active=True
-        ),
-        UserProfile(
-            id="user-patient-1",
-            email="patient.ramesh@apexcare.org",
-            full_name="Ramesh Patil",
-            role="PATIENT",
-            facility_id="facility-apex-1",
-            patient_id="patient-demo-1",
-            password_hash=hash_password("Patient123!"),
             is_active=True
         )
     ]
@@ -177,6 +168,12 @@ def seed_initial_data(db: Session):
     for rule in rules:
         if not db.execute(select(EscalationRule).where(EscalationRule.code == rule.code)).scalars().first():
             db.add(rule)
+
+    # Check if synthetic demo patient records should be seeded (disabled by default to preserve a clean database for genuine workflows)
+    seed_demo = os.getenv("SEED_DEMO_PATIENTS", "false").lower() in ("true", "1", "yes")
+    if not seed_demo:
+        db.commit()
+        return
 
     # 4. Sample Patient 1 (Mr. Ramesh Patil - Marathi/English)
     p1_stmt = select(Patient).where(Patient.id == "patient-demo-1")
@@ -352,6 +349,27 @@ def seed_initial_data(db: Session):
             calculation_breakdown={"weights": {"medication": 0.4, "symptoms": 0.25, "hydration": 0.15, "activity": 0.2}}
         )
         db.add(score1)
+
+    # 4.1 Sample Patient 1 User Account (patient.ramesh@apexcare.org)
+    pat_user_stmt = select(UserProfile).where(UserProfile.email == "patient.ramesh@apexcare.org")
+    pat_user = db.execute(pat_user_stmt).scalars().first()
+    if not pat_user:
+        pat_user = UserProfile(
+            id="user-patient-1",
+            email="patient.ramesh@apexcare.org",
+            full_name="Ramesh Patil",
+            role="PATIENT",
+            facility_id="facility-apex-1",
+            patient_id="patient-demo-1",
+            password_hash=hash_password("Patient123!"),
+            is_active=True
+        )
+        db.add(pat_user)
+    else:
+        pat_user.patient_id = "patient-demo-1"
+        pat_user.password_hash = hash_password("Patient123!")
+        pat_user.is_active = True
+    db.flush()
 
     # 5. Sample Patient 2 (Smt. Sunita Devi - Hindi)
     p2_stmt = select(Patient).where(Patient.id == "patient-demo-2")

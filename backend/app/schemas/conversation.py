@@ -81,3 +81,4 @@ class InterruptionResumeRequest(BaseModel):
 class CallDispositionRequest(BaseModel):
     disposition: str # COMPLETED, PARTIAL, NO_ANSWER, BUSY, UNREACHABLE, WRONG_PERSON, DECLINED, DISCONNECTED
     notes: Optional[str] = None
+    is_simulation: bool = False

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, or_
 from typing import List, Optional, Dict, Any
 from datetime import datetime, date
 
@@ -13,6 +13,7 @@ from app.schemas.patient import (
     PatientRegisterRequest, PatientUpdateRequest, PatientResponse,
     CaregiverCreate, ConsentCreate, PatientPauseResumeRequest, ConsentWithdrawRequest
 )
+from app.services.fhir_service import FHIRService, FHIRValidationError, FHIRDuplicateError
 
 router = APIRouter(prefix="/patients", tags=["Patients & Onboarding"])
 
@@ -330,6 +331,99 @@ def withdraw_consent(
         "scope": req.scope,
         "patient_status": patient.status
     }
+
+@router.post("/import/fhir/preview")
+def preview_fhir_import(
+    data: Dict[str, Any],
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
+):
+    """
+    ON-07: Validates FHIR R4 discharge bundle and provides a pre-import preview
+    with duplicate detection status.
+    """
+    try:
+        parsed = FHIRService.parse_bundle(data)
+        phone = parsed["demographics"].get("phone")
+        is_duplicate = False
+        duplicate_patient = None
+
+        if phone:
+            existing = db.execute(
+                select(Patient).where(
+                    or_(
+                        Patient.phone == phone,
+                        Patient.phone == phone.replace(" ", "").replace("-", "")
+                    )
+                )
+            ).scalars().first()
+            if existing:
+                is_duplicate = True
+                duplicate_patient = {
+                    "id": existing.id,
+                    "name": f"{existing.first_name} {existing.last_name}",
+                    "status": existing.status,
+                    "created_at": existing.created_at.isoformat() if existing.created_at else None
+                }
+
+        return {
+            "valid": True,
+            "parsed_data": parsed,
+            "is_duplicate": is_duplicate,
+            "duplicate_patient": duplicate_patient,
+            "summary": {
+                "patient_name": f"{parsed['demographics']['first_name']} {parsed['demographics']['last_name']}",
+                "diagnosis": parsed['demographics']['diagnosis'],
+                "phone": phone,
+                "medications_count": len(parsed["medications"]),
+                "caregivers_count": len(parsed["caregivers"])
+            }
+        }
+    except FHIRValidationError as ve:
+        raise HTTPException(status_code=422, detail=ve.message)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to parse FHIR bundle: {str(e)}")
+
+
+@router.post("/import/fhir", status_code=status.HTTP_201_CREATED)
+def import_from_fhir(
+    data: Dict[str, Any],
+    check_duplicates: bool = Query(True, description="Enforce duplicate rejection on existing phone/MRN"),
+    activate: bool = Query(True, description="Activate programme immediately if care plan is valid"),
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
+):
+    """
+    ON-07: Ingests HL7 FHIR R4 patient discharge data, validates demographics,
+    maps conditions to care plan, checks for duplicates, and creates database records.
+    """
+    facility_id = current_user.facility_id or "facility-apex-1"
+    try:
+        result = FHIRService.import_fhir_patient(
+            db=db,
+            bundle_data=data,
+            actor_id=current_user.id,
+            actor_role=current_user.role.value,
+            facility_id=facility_id,
+            check_duplicates=check_duplicates,
+            activate_immediately=activate
+        )
+        return result
+    except FHIRDuplicateError as de:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "DUPLICATE_PATIENT",
+                "message": de.message,
+                "existing_patient_id": de.existing_patient_id,
+                "phone": de.phone
+            }
+        )
+    except FHIRValidationError as ve:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=ve.message)
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
 
 @router.post("/import-his")
 def import_from_his(

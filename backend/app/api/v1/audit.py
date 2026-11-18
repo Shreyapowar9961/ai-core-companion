@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
 from typing import List, Optional, Dict, Any
 from datetime import datetime
@@ -12,11 +12,11 @@ from app.core.audit import reconstruct_patient_journey
 router = APIRouter(prefix="/audit", tags=["Lifecycle, Governance & Audit Trail"])
 
 @router.get("/logs")
-async def list_audit_logs(
+def list_audit_logs(
     patient_id: Optional[str] = None,
     event_type: Optional[str] = None,
     limit: int = 100,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     """
@@ -30,7 +30,7 @@ async def list_audit_logs(
         stmt = stmt.where(AuditLog.event_type == event_type)
     stmt = stmt.order_by(desc(AuditLog.created_at)).limit(limit)
 
-    logs = (await db.execute(stmt)).scalars().all()
+    logs = db.execute(stmt).scalars().all()
     return [
         {
             "id": l.id,
@@ -46,11 +46,11 @@ async def list_audit_logs(
     ]
 
 @router.get("/config-logs")
-async def list_config_audit_logs(
+def list_config_audit_logs(
     config_type: Optional[str] = None,
     item_id: Optional[str] = None,
     limit: int = 100,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     """
@@ -64,7 +64,7 @@ async def list_config_audit_logs(
         stmt = stmt.where(ConfigAuditLog.item_id == item_id)
     stmt = stmt.order_by(desc(ConfigAuditLog.created_at)).limit(limit)
 
-    logs = (await db.execute(stmt)).scalars().all()
+    logs = db.execute(stmt).scalars().all()
     return [
         {
             "id": l.id,
@@ -80,18 +80,18 @@ async def list_config_audit_logs(
     ]
 
 @router.get("/journey/{patient_id}")
-async def get_patient_interaction_journey(
+def get_patient_interaction_journey(
     patient_id: str,
     start_date: Optional[datetime] = None,
     end_date: Optional[datetime] = None,
-    db: AsyncSession = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_roles([UserRole.CLINICIAN, UserRole.ADMIN]))
 ):
     """
     GV-05: Enable reconstruction of a patient's complete interaction history
     for any period by an authorised user.
     """
-    journey = await reconstruct_patient_journey(
+    journey = reconstruct_patient_journey(
         db=db,
         patient_id=patient_id,
         start_date=start_date,

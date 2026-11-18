@@ -179,6 +179,8 @@ export interface CallSession {
   resume_context?: Record<string, any>;
   transferred_to_human: boolean;
   transfer_reason?: string;
+  audio_url?: string;
+  turns?: CallTurn[];
   created_at: string;
 }
 
@@ -392,6 +394,8 @@ export interface CommunicationLog {
   status: 'GENERATED' | 'SENT' | 'DELIVERED' | 'VIEWED' | 'RESPONDED' | 'FAILED';
   is_simulated: boolean;
   sent_at: string;
+  viewed_at?: string;
+  is_read?: boolean;
 }
 
 export interface PatientFeedback {

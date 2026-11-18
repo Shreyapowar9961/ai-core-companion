@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, date
 from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import select, desc
+from sqlalchemy.exc import IntegrityError
 from app.models.rules_alert import EscalationRule, Alert, AlertActionLog
 from app.models.clinical import VitalReading, SymptomCheckin, MedicationLog, VitalsThreshold
 from app.models.conversation import CallSession
@@ -52,6 +53,111 @@ class RulesEngine:
             return now + timedelta(minutes=settings.ALERT_SLA_MEDIUM_MINUTES)
         else: # INFO
             return now + timedelta(minutes=settings.ALERT_SLA_INFO_MINUTES)
+
+    ACTIVE_ALERT_STATUSES = ("OPEN", "ACKNOWLEDGED", "ESCALATED")
+    TERMINAL_ALERT_STATUSES = ("RESOLVED", "DISMISSED")
+
+    @classmethod
+    def get_active_alert(cls, db: Session, patient_id: str, rule_code: str) -> Optional[Alert]:
+        """
+        Phase 1.1: Checks whether an active investigation alert already exists
+        for the given patient and rule code (status in OPEN, ACKNOWLEDGED, ESCALATED).
+        Preserves existing severity, SLA due date, and timestamps without duplicate inserts.
+        """
+        stmt = select(Alert).where(
+            Alert.patient_id == patient_id,
+            Alert.rule_code == rule_code,
+            Alert.status.in_(cls.ACTIVE_ALERT_STATUSES)
+        )
+        res = db.execute(stmt).scalars().first()
+        if isinstance(res, Alert) and res.status in cls.ACTIVE_ALERT_STATUSES and res.patient_id == patient_id and res.rule_code == rule_code:
+            return res
+        return None
+
+    @classmethod
+    def get_open_alert(cls, db: Session, patient_id: str, rule_code: str) -> Optional[Alert]:
+        """Backward-compatible alias for get_active_alert."""
+        return cls.get_active_alert(db, patient_id, rule_code)
+
+    @classmethod
+    def create_or_get_alert(
+        cls,
+        db: Session,
+        patient_id: str,
+        rule_code: str,
+        severity: str,
+        title: str,
+        description: str,
+        supporting_data: Optional[Dict[str, Any]] = None,
+        sla_due_at: Optional[datetime] = None,
+        rule_id: Optional[str] = None,
+        action_log_notes: Optional[str] = None
+    ) -> Tuple[Alert, bool]:
+        """
+        Phase 1.1: Centralized alert creation with deduplication and concurrency protection.
+        1. Checks for existing active alert (OPEN, ACKNOWLEDGED, ESCALATED).
+        2. If active alert exists, returns (existing_alert, False).
+        3. If no active alert exists, inserts a new Alert within a savepoint (begin_nested).
+        4. If a concurrent worker committed an alert in the same millisecond, catches IntegrityError,
+           rolls back the savepoint, refetches the active alert, and returns (concurrent_alert, False).
+        """
+        # 1. Application-level check
+        existing = cls.get_active_alert(db, patient_id, rule_code)
+        if existing:
+            return existing, False
+
+        # 2. Compute SLA if not passed
+        if not sla_due_at:
+            sla_due_at = cls.get_sla_due_time(severity)
+
+        alert = Alert(
+            patient_id=patient_id,
+            rule_id=rule_id,
+            rule_code=rule_code,
+            severity=severity,
+            title=title,
+            description=description,
+            supporting_data=supporting_data or {},
+            status="OPEN",
+            sla_due_at=sla_due_at
+        )
+
+        # 3. Concurrency-safe insert with savepoint rollback on duplicate
+        has_nested = hasattr(db, "begin_nested") and callable(getattr(db, "begin_nested"))
+        try:
+            if has_nested:
+                with db.begin_nested():
+                    db.add(alert)
+                    db.flush()
+                    action_log = AlertActionLog(
+                        alert_id=alert.id,
+                        user_id="RULES_ENGINE",
+                        user_name="Deterministic Clinical Rules Engine",
+                        action="CREATED",
+                        notes=action_log_notes or f"Auto-triggered by rule: {rule_code}"
+                    )
+                    db.add(action_log)
+                    db.flush()
+            else:
+                db.add(alert)
+                db.flush()
+                action_log = AlertActionLog(
+                    alert_id=alert.id,
+                    user_id="RULES_ENGINE",
+                    user_name="Deterministic Clinical Rules Engine",
+                    action="CREATED",
+                    notes=action_log_notes or f"Auto-triggered by rule: {rule_code}"
+                )
+                db.add(action_log)
+                db.flush()
+            db.commit()
+            return alert, True
+        except IntegrityError:
+            # Savepoint was rolled back; session is clean. Refetch conflicting active alert.
+            existing_concurrent = cls.get_active_alert(db, patient_id, rule_code)
+            if existing_concurrent:
+                return existing_concurrent, False
+            raise
 
     @classmethod
     def evaluate_vital_reading(
@@ -126,9 +232,11 @@ class RulesEngine:
             is_critical = True
 
         if is_critical:
-            alert = Alert(
+            rule_code = f"RULE_VITAL_{vital_type}_CRITICAL"
+            alert, created = cls.create_or_get_alert(
+                db=db,
                 patient_id=patient_id,
-                rule_code=f"RULE_VITAL_{vital_type}_CRITICAL",
+                rule_code=rule_code,
                 severity="CRITICAL",
                 title=f"Critical {vital_type} Breach: {value} {unit}",
                 description=f"Patient reported {vital_type} of {value} {unit}, which breached critical safety boundaries ({critical_min} - {critical_max} {unit}).",
@@ -140,21 +248,8 @@ class RulesEngine:
                     "critical_min": critical_min,
                     "critical_max": critical_max
                 },
-                status="OPEN",
-                sla_due_at=cls.get_sla_due_time("CRITICAL")
+                action_log_notes=f"Auto-triggered by vital threshold breach: {vital_type}={value}"
             )
-            db.add(alert)
-            db.flush()
-            
-            action_log = AlertActionLog(
-                alert_id=alert.id,
-                user_id="RULES_ENGINE",
-                user_name="Deterministic Clinical Rules Engine",
-                action="CREATED",
-                notes=f"Auto-triggered by vital threshold breach: {vital_type}={value}"
-            )
-            db.add(action_log)
-            db.commit()
             return "CRITICAL", alert
 
         # Check Warning breach
@@ -165,9 +260,11 @@ class RulesEngine:
             is_warning = True
 
         if is_warning:
-            alert = Alert(
+            rule_code = f"RULE_VITAL_{vital_type}_WARNING"
+            alert, created = cls.create_or_get_alert(
+                db=db,
                 patient_id=patient_id,
-                rule_code=f"RULE_VITAL_{vital_type}_WARNING",
+                rule_code=rule_code,
                 severity="HIGH",
                 title=f"Elevated {vital_type}: {value} {unit}",
                 description=f"Patient reported {vital_type} of {value} {unit}, entering clinician-configured warning zone.",
@@ -179,21 +276,8 @@ class RulesEngine:
                     "warning_min": warning_min,
                     "warning_max": warning_max
                 },
-                status="OPEN",
-                sla_due_at=cls.get_sla_due_time("HIGH")
+                action_log_notes=f"Auto-triggered by warning threshold: {vital_type}={value}"
             )
-            db.add(alert)
-            db.flush()
-            
-            action_log = AlertActionLog(
-                alert_id=alert.id,
-                user_id="RULES_ENGINE",
-                user_name="Deterministic Clinical Rules Engine",
-                action="CREATED",
-                notes=f"Auto-triggered by warning threshold: {vital_type}={value}"
-            )
-            db.add(action_log)
-            db.commit()
             return "WARNING", alert
 
         return "NORMAL", None
@@ -222,7 +306,8 @@ class RulesEngine:
             red_flag_reasons.append("Purulent surgical wound discharge reported")
 
         if red_flag_reasons:
-            alert = Alert(
+            alert, _ = cls.create_or_get_alert(
+                db=db,
                 patient_id=patient_id,
                 rule_code="RULE_RED_FLAG_EMERGENCY",
                 severity="CRITICAL",
@@ -236,18 +321,8 @@ class RulesEngine:
                     "wound_status": current_checkin.wound_status,
                     "checkin_id": current_checkin.id
                 },
-                status="OPEN",
-                sla_due_at=cls.get_sla_due_time("CRITICAL")
+                action_log_notes="Red-flag symptom emergency triggered"
             )
-            db.add(alert)
-            db.flush()
-            db.add(AlertActionLog(
-                alert_id=alert.id,
-                user_id="RULES_ENGINE",
-                user_name="Deterministic Clinical Rules Engine",
-                action="CREATED",
-                notes="Red-flag symptom emergency triggered"
-            ))
             generated_alerts.append(alert)
 
         # 2. Sustained Worsening Trend Detection (CI-05)
@@ -266,7 +341,8 @@ class RulesEngine:
                     worsened_breathlessness_days += 1
 
             if worsened_breathlessness_days >= 2:
-                alert = Alert(
+                alert, _ = cls.create_or_get_alert(
+                    db=db,
                     patient_id=patient_id,
                     rule_code="RULE_SYMPTOM_SUSTAINED_WORSENING_BREATHLESSNESS",
                     severity="HIGH",
@@ -277,24 +353,15 @@ class RulesEngine:
                         "consecutive_worsened_days": worsened_breathlessness_days,
                         "current_status": current_checkin.breathlessness
                     },
-                    status="OPEN",
-                    sla_due_at=cls.get_sla_due_time("HIGH")
+                    action_log_notes="Sustained breathlessness deterioration detected across multiple days"
                 )
-                db.add(alert)
-                db.flush()
-                db.add(AlertActionLog(
-                    alert_id=alert.id,
-                    user_id="RULES_ENGINE",
-                    user_name="Deterministic Clinical Rules Engine",
-                    action="CREATED",
-                    notes="Sustained breathlessness deterioration detected across multiple days"
-                ))
                 generated_alerts.append(alert)
 
             if current_checkin.comparison_with_yesterday and current_checkin.comparison_with_yesterday.get("pain") == "worsened" and (current_checkin.pain_level is not None and current_checkin.pain_level >= 5):
                 prev_pain = (previous_checkins[0].pain_level or 0) if previous_checkins else 0
                 if current_checkin.pain_level > prev_pain:
-                    alert = Alert(
+                    alert, _ = cls.create_or_get_alert(
+                        db=db,
                         patient_id=patient_id,
                         rule_code="RULE_SYMPTOM_WORSENING_PAIN",
                         severity="MEDIUM",
@@ -305,18 +372,8 @@ class RulesEngine:
                             "previous_score": prev_pain,
                             "current_score": current_checkin.pain_level
                         },
-                        status="OPEN",
-                        sla_due_at=cls.get_sla_due_time("MEDIUM")
+                        action_log_notes=f"Pain score increased: {prev_pain} -> {current_checkin.pain_level}"
                     )
-                    db.add(alert)
-                    db.flush()
-                    db.add(AlertActionLog(
-                        alert_id=alert.id,
-                        user_id="RULES_ENGINE",
-                        user_name="Deterministic Clinical Rules Engine",
-                        action="CREATED",
-                        notes=f"Pain score increased: {prev_pain} -> {current_checkin.pain_level}"
-                    ))
                     generated_alerts.append(alert)
 
         db.commit()
@@ -340,7 +397,8 @@ class RulesEngine:
 
         missed_count = sum(1 for m in recent_logs if m.status in ["MISSED", "DEFERRED"])
         if missed_count >= 2:
-            alert = Alert(
+            alert, _ = cls.create_or_get_alert(
+                db=db,
                 patient_id=patient_id,
                 rule_code="RULE_MED_REPEATED_MISS",
                 severity="HIGH",
@@ -351,19 +409,8 @@ class RulesEngine:
                     "consecutive_misses": missed_count,
                     "recent_reasons": [m.stated_reason for m in recent_logs if m.stated_reason]
                 },
-                status="OPEN",
-                sla_due_at=cls.get_sla_due_time("HIGH")
+                action_log_notes=f"Triggered by repeated misses of {medicine_name}"
             )
-            db.add(alert)
-            db.flush()
-            db.add(AlertActionLog(
-                alert_id=alert.id,
-                user_id="RULES_ENGINE",
-                user_name="Deterministic Clinical Rules Engine",
-                action="CREATED",
-                notes=f"Triggered by repeated misses of {medicine_name}"
-            ))
-            db.commit()
             return alert
         return None
 
@@ -380,7 +427,8 @@ class RulesEngine:
         CM-02: Escalate to caregiver and care team once configured contact attempts are exhausted.
         """
         if retry_count >= retry_limit:
-            alert = Alert(
+            alert, _ = cls.create_or_get_alert(
+                db=db,
                 patient_id=patient_id,
                 rule_code="RULE_CONTACT_FAILURE_EXHAUSTED",
                 severity="HIGH",
@@ -391,19 +439,8 @@ class RulesEngine:
                     "limit": retry_limit,
                     "last_disposition": last_disposition
                 },
-                status="OPEN",
-                sla_due_at=cls.get_sla_due_time("HIGH")
+                action_log_notes=f"Contact attempts exhausted ({retry_count}/{retry_limit})"
             )
-            db.add(alert)
-            db.flush()
-            db.add(AlertActionLog(
-                alert_id=alert.id,
-                user_id="RULES_ENGINE",
-                user_name="Deterministic Clinical Rules Engine",
-                action="CREATED",
-                notes=f"Contact attempts exhausted ({retry_count}/{retry_limit})"
-            ))
-            db.commit()
             return alert
         return None
 
@@ -456,38 +493,21 @@ class RulesEngine:
             indicators_flagged.append(f"Care Progress score dropped by >15% over last 3 days")
 
         if len(indicators_flagged) >= 2:
-            existing_stmt = select(Alert).where(
-                Alert.patient_id == patient_id,
-                Alert.rule_code == "RULE_COMPOSITE_DECLINE_REVIEW",
-                Alert.status.in_(["OPEN", "ACKNOWLEDGED", "ESCALATED"])
+            alert, _ = cls.create_or_get_alert(
+                db=db,
+                patient_id=patient_id,
+                rule_code="RULE_COMPOSITE_DECLINE_REVIEW",
+                severity="HIGH",
+                title="Composite Health Pattern Decline Detected",
+                description="Patient exhibits a multi-factor declining pattern across indicators: " + "; ".join(indicators_flagged),
+                supporting_data={
+                    "indicators": indicators_flagged,
+                    "missed_meds": missed_meds,
+                    "worsened_symptoms_count": worsened_symptoms_count,
+                    "score_drop": score_drop
+                },
+                action_log_notes="Composite decline detected across multiple clinical indicators"
             )
-            existing = db.execute(existing_stmt).scalars().first()
-            if not existing:
-                alert = Alert(
-                    patient_id=patient_id,
-                    rule_code="RULE_COMPOSITE_DECLINE_REVIEW",
-                    severity="HIGH",
-                    title="Composite Health Pattern Decline Detected",
-                    description="Patient exhibits a multi-factor declining pattern across indicators: " + "; ".join(indicators_flagged),
-                    supporting_data={
-                        "indicators": indicators_flagged,
-                        "missed_meds": missed_meds,
-                        "worsened_symptoms_count": worsened_symptoms_count,
-                        "score_drop": score_drop
-                    },
-                    status="OPEN",
-                    sla_due_at=cls.get_sla_due_time("HIGH")
-                )
-                db.add(alert)
-                db.flush()
-                db.add(AlertActionLog(
-                    alert_id=alert.id,
-                    user_id="RULES_ENGINE",
-                    user_name="Deterministic Clinical Rules Engine",
-                    action="CREATED",
-                    notes="Composite decline detected across multiple clinical indicators"
-                ))
-                db.commit()
-                return alert
+            return alert
 
         return None

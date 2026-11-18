@@ -69,11 +69,11 @@ export const PrescriptionVerificationModal: React.FC<PrescriptionVerificationMod
     setEditableMeds([
       ...editableMeds,
       {
-        medicine_name: 'New Medication',
-        dosage: '1 tablet',
+        medicine_name: '',
+        dosage: '',
         frequency: 'Once daily',
         dose_times: ['09:00'],
-        instructions: 'Take after meals with water',
+        instructions: '',
         status: 'UNVERIFIED'
       }
     ]);

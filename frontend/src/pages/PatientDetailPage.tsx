@@ -31,7 +31,7 @@ import {
 
 export const PatientDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const patientId = id || 'patient-apex-101';
+  const patientId = id || '';
   const { token, currentUser } = useAuth();
   const navigate = useNavigate();
 
@@ -40,6 +40,7 @@ export const PatientDetailPage: React.FC = () => {
   const [vitals, setVitals] = useState<VitalReading[]>([]);
   const [symptoms, setSymptoms] = useState<SymptomCheckin[]>([]);
   const [calls, setCalls] = useState<CallSession[]>([]);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [todayScore, setTodayScore] = useState<DailyProgressScore | null>(null);
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
@@ -65,6 +66,11 @@ export const PatientDetailPage: React.FC = () => {
 
   useEffect(() => {
     if (!token) return;
+    if (!patientId) {
+      setIsLoading(false);
+      setErrorMessage("No patient ID specified. Please select a patient from the Clinician Dashboard.");
+      return;
+    }
     setIsLoading(true);
     setErrorMessage(null);
 
@@ -221,7 +227,7 @@ export const PatientDetailPage: React.FC = () => {
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1">
-              Diagnosis: <strong className="text-slate-800">{patient.diagnosis}</strong> · Discharge: {patient.discharge_date} · Doctor: {patient.treating_doctor_name || 'Dr. Neha Kulkarni'}
+              Diagnosis: <strong className="text-slate-800">{patient.diagnosis}</strong> · Discharge: {patient.discharge_date} · Doctor: {patient.treating_doctor_name || 'Attending Physician'}
             </p>
           </div>
         </div>
@@ -693,7 +699,7 @@ export const PatientDetailPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-slate-500 text-[11px]">Diet Instructions</p>
-                <p className="font-bold text-slate-800">{patient.care_plan?.diet_instructions || 'Cardiac Diet'}</p>
+                <p className="font-bold text-slate-800">{patient.care_plan?.diet_instructions || 'Prescribed Recovery Diet'}</p>
               </div>
             </div>
           </div>
@@ -715,30 +721,87 @@ export const PatientDetailPage: React.FC = () => {
                 <th className="px-4 py-3">Language</th>
                 <th className="px-4 py-3">Duration</th>
                 <th className="px-4 py-3">Disposition</th>
+                <th className="px-4 py-3">Audio Recording (CV-08)</th>
                 <th className="px-4 py-3">Status</th>
+                <th className="px-4 py-3 text-right">Transcripts</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {calls.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
+                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
                     No telephone check-in calls recorded yet for this patient.
                   </td>
                 </tr>
               ) : (
                 calls.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-medium text-slate-700">
-                      {new Date((c as any).start_time || (c as any).created_at || Date.now()).toLocaleString()}
-                    </td>
-                    <td className="px-4 py-3 font-bold text-slate-800">{c.direction} · {c.call_type}</td>
-                    <td className="px-4 py-3 uppercase font-semibold text-indigo-700">{c.language_used}</td>
-                    <td className="px-4 py-3 text-slate-600">{c.duration_seconds}s</td>
-                    <td className="px-4 py-3 font-semibold text-slate-800">{c.disposition || 'IN_PROGRESS'}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={c.status} size="sm" />
-                    </td>
-                  </tr>
+                  <React.Fragment key={c.id}>
+                    <tr className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3 font-medium text-slate-700">
+                        {new Date((c as any).start_time || (c as any).created_at || Date.now()).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-800">{c.direction} · {c.call_type}</td>
+                      <td className="px-4 py-3 uppercase font-semibold text-indigo-700">{c.language_used}</td>
+                      <td className="px-4 py-3 text-slate-600">{c.duration_seconds}s</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800">{c.disposition || 'IN_PROGRESS'}</td>
+                      <td className="px-4 py-3">
+                        {c.audio_url ? (
+                          <audio
+                            controls
+                            preload="none"
+                            src={apiClient.getCallAudioStreamUrl(c.id)}
+                            className="h-7 w-44"
+                          />
+                        ) : (
+                          <span className="text-[10px] text-slate-400 italic">No audio recorded</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={c.status} size="sm" />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => setExpandedCallId(expandedCallId === c.id ? null : c.id)}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 rounded-lg text-[11px] font-semibold transition-colors"
+                        >
+                          {expandedCallId === c.id ? 'Hide Turns' : `Turns (${(c as any).turns?.length || 0})`}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedCallId === c.id && (
+                      <tr className="bg-slate-50/80">
+                        <td colSpan={8} className="p-4 border-y border-slate-200">
+                          <div className="space-y-2">
+                            <h4 className="font-bold text-xs text-slate-800 flex items-center justify-between">
+                              <span>Conversational Turns & Patient Speech Transcripts</span>
+                              <span className="text-[10px] text-slate-500 font-normal">Session ID: {c.id}</span>
+                            </h4>
+                            {!(c as any).turns || (c as any).turns.length === 0 ? (
+                              <p className="text-[11px] text-slate-400 italic">No discrete dialogue turns recorded for this call.</p>
+                            ) : (
+                              <div className="space-y-2 max-h-60 overflow-y-auto pr-2">
+                                {(c as any).turns.map((turn: any, tIdx: number) => (
+                                  <div key={turn.id || tIdx} className="p-2.5 bg-white border border-slate-200 rounded-xl space-y-1 text-xs">
+                                    <div className="flex items-center justify-between text-[10px] font-semibold text-slate-500">
+                                      <span>Turn #{turn.turn_index ?? tIdx + 1} · {turn.step_key}</span>
+                                      <span className="uppercase text-indigo-600">{turn.detected_language || c.language_used}</span>
+                                    </div>
+                                    <p className="text-slate-800"><strong className="text-indigo-700">AI Care Companion:</strong> {turn.agent_prompt}</p>
+                                    <p className="text-slate-700"><strong className="text-emerald-700">Patient Speech:</strong> {turn.patient_audio_transcript || '<No speech captured>'}</p>
+                                    {turn.extracted_entities && Object.keys(turn.extracted_entities).length > 0 && (
+                                      <p className="text-[11px] text-slate-500 font-mono bg-slate-50 p-1 rounded-sm">
+                                        Extracted: {JSON.stringify(turn.extracted_entities)}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
                 ))
               )}
             </tbody>
@@ -814,7 +877,7 @@ export const PatientDetailPage: React.FC = () => {
                   {/* Clinician Notes */}
                   {rx.clinician_notes && (
                     <div className="p-3 bg-emerald-50/50 rounded-xl border border-emerald-100 text-xs text-emerald-900">
-                      <strong>Clinician Approval Note:</strong> {rx.clinician_notes} (Approved by {rx.verified_by || 'Dr. Neha Kulkarni'})
+                      <strong>Clinician Approval Note:</strong> {rx.clinician_notes} (Approved by {rx.verified_by || 'Attending Clinician'})
                     </div>
                   )}
                 </div>

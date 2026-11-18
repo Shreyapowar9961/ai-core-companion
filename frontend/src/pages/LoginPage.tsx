@@ -17,7 +17,7 @@ export const LoginPage: React.FC = () => {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [phone, setPhone] = useState('+919820011223');
+  const [phone, setPhone] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -90,27 +90,6 @@ export const LoginPage: React.FC = () => {
       setErrorMessage(err.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const setDemoCredentials = (role: 'doctor' | 'admin' | 'patient') => {
-    setErrorMessage(null);
-    setSuccessMessage(null);
-    if (role === 'doctor') {
-      setMode('staff');
-      setPatientView('login');
-      setEmail('dr.neha@apexcare.org');
-      setPassword('Clinician123!');
-    } else if (role === 'admin') {
-      setMode('staff');
-      setPatientView('login');
-      setEmail('admin@apexcare.org');
-      setPassword('Admin123!');
-    } else {
-      setMode('patient');
-      setPatientView('login');
-      setEmail('patient.ramesh@apexcare.org');
-      setPassword('Patient123!');
     }
   };
 
@@ -310,36 +289,6 @@ export const LoginPage: React.FC = () => {
               )}
             </div>
           )}
-
-          {/* Quick Demo Credentials */}
-          <div className="mt-6 pt-4 border-t border-slate-100">
-            <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2 text-center">
-              Quick 1-Click Demo Sign-in
-            </span>
-            <div className="grid grid-cols-3 gap-2">
-              <button
-                type="button"
-                onClick={() => setDemoCredentials('doctor')}
-                className="py-1.5 px-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[11px] font-bold transition-colors border border-indigo-200"
-              >
-                Dr. Neha
-              </button>
-              <button
-                type="button"
-                onClick={() => setDemoCredentials('admin')}
-                className="py-1.5 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition-colors border border-slate-300"
-              >
-                Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => setDemoCredentials('patient')}
-                className="py-1.5 px-2 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold transition-colors border border-emerald-200"
-              >
-                Ramesh (Patient)
-              </button>
-            </div>
-          </div>
 
         </div>
 
